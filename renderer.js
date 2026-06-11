@@ -4,8 +4,12 @@ const els = {
   appIdInput: $('appIdInput'),
   accountModeSelect: $('accountModeSelect'),
   accountWarning: $('accountWarning'),
+  demoAccountIdInput: $('demoAccountIdInput'),
+  realAccountIdInput: $('realAccountIdInput'),
   demoTokenInput: $('demoTokenInput'),
   realTokenInput: $('realTokenInput'),
+  accountsBtn: $('accountsBtn'),
+  accountsBox: $('accountsBox'),
   connectBtn: $('connectBtn'),
   connectionStatus: $('connectionStatus'),
   accountText: $('accountText'),
@@ -14,6 +18,8 @@ const els = {
   stakeText: $('stakeText'),
   lastResultText: $('lastResultText'),
   symbolSelect: $('symbolSelect'),
+  manualSymbolWrap: $('manualSymbolWrap'),
+  manualSymbolInput: $('manualSymbolInput'),
   modeSelect: $('modeSelect'),
   barrierWrap: $('barrierWrap'),
   barrierInput: $('barrierInput'),
@@ -36,7 +42,7 @@ let isAuthorized = false;
 let isSendingOrder = false;
 let balance = null;
 let currency = 'USD';
-let activeLoginId = null;
+let activeAccountId = null;
 let activeAccountMode = 'demo';
 let balanceSubscriptionId = null;
 let contractSubscriptionId = null;
@@ -52,17 +58,32 @@ function getSelectedToken() {
     : String(els.demoTokenInput.value || '').trim();
 }
 
+function getSelectedAccountId() {
+  return getSelectedAccountMode() === 'real'
+    ? String(els.realAccountIdInput.value || '').trim()
+    : String(els.demoAccountIdInput.value || '').trim();
+}
+
 function getAccountLabel(mode = getSelectedAccountMode()) {
   return mode === 'real' ? 'REAL' : 'DEMO';
+}
+
+function getSymbol() {
+  return els.symbolSelect.value === 'custom'
+    ? String(els.manualSymbolInput.value || '').trim()
+    : els.symbolSelect.value;
 }
 
 function saveSettings() {
   localStorage.setItem('derivIcSettings', JSON.stringify({
     appId: els.appIdInput.value,
     accountMode: els.accountModeSelect.value,
+    demoAccountId: els.demoAccountIdInput.value,
+    realAccountId: els.realAccountIdInput.value,
     demoToken: els.demoTokenInput.value,
     realToken: els.realTokenInput.value,
     symbol: els.symbolSelect.value,
+    manualSymbol: els.manualSymbolInput.value,
     mode: els.modeSelect.value,
     barrier: els.barrierInput.value,
     duration: els.durationInput.value,
@@ -80,13 +101,16 @@ function loadSettings() {
     const s = JSON.parse(raw);
     if (s.appId) els.appIdInput.value = s.appId;
     if (s.accountMode) els.accountModeSelect.value = s.accountMode;
+    if (s.demoAccountId) els.demoAccountIdInput.value = s.demoAccountId;
+    if (s.realAccountId) els.realAccountIdInput.value = s.realAccountId;
 
-    // Compatibilidad con la primera versión: si existía un token único, lo carga como demo.
+    // Compatibilidad con versiones anteriores: si existía token único, lo deja como demo.
     if (s.demoToken) els.demoTokenInput.value = s.demoToken;
     else if (s.token) els.demoTokenInput.value = s.token;
 
     if (s.realToken) els.realTokenInput.value = s.realToken;
     if (s.symbol) els.symbolSelect.value = s.symbol;
+    if (s.manualSymbol) els.manualSymbolInput.value = s.manualSymbol;
     if (s.mode) els.modeSelect.value = s.mode;
     if (s.barrier) els.barrierInput.value = s.barrier;
     if (s.duration) els.durationInput.value = s.duration;
@@ -109,7 +133,7 @@ function addLog(message, cls = '') {
     cls
   };
   tradeLog.unshift(item);
-  tradeLog = tradeLog.slice(0, 80);
+  tradeLog = tradeLog.slice(0, 90);
   localStorage.setItem('tradeLog', JSON.stringify(tradeLog));
   renderLog();
 }
@@ -121,7 +145,7 @@ function renderLog() {
 }
 
 function escapeHtml(str) {
-  return String(str).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+  return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[c]));
 }
 
 function send(payload) {
@@ -144,91 +168,103 @@ async function connect() {
   saveSettings();
   const appId = String(els.appIdInput.value || '').trim();
   const token = getSelectedToken();
+  const accountId = getSelectedAccountId();
   const requestedMode = getSelectedAccountMode();
   const requestedLabel = getAccountLabel(requestedMode);
 
-  if (!appId || !token) {
-    addLog(`Falta App ID o token ${requestedLabel}.`, 'err');
+  if (!appId || !token || !accountId) {
+    addLog(`Falta App ID, token o Account ID ${requestedLabel}.`, 'err');
     return;
   }
 
   disconnect();
   activeAccountMode = requestedMode;
-  setStatus(`Conectando ${requestedLabel}...`, 'warn');
+  activeAccountId = accountId;
+  setStatus(`Pidiendo OTP ${requestedLabel}...`, 'warn');
   els.connectBtn.disabled = true;
 
-  ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`);
+  try {
+    const wsUrl = await window.electronAPI.getOtpWebSocketUrl({ appId, token, accountId });
+    const urlMode = String(wsUrl).includes('/ws/real') ? 'real' : String(wsUrl).includes('/ws/demo') ? 'demo' : requestedMode;
+    if (urlMode !== requestedMode) {
+      addLog(`Aviso: seleccionaste ${requestedLabel}, pero la URL OTP parece de cuenta ${getAccountLabel(urlMode)}.`, 'warn');
+      activeAccountMode = urlMode;
+    }
 
-  ws.onopen = async () => {
-    try {
-      const auth = await send({ authorize: token });
-      if (auth.error) throw new Error(auth.error.message);
+    setStatus(`Conectando WebSocket ${getAccountLabel(activeAccountMode)}...`, 'warn');
+    ws = new WebSocket(wsUrl);
 
-      isAuthorized = true;
-      currency = auth.authorize.currency || 'USD';
-      activeLoginId = auth.authorize.loginid || null;
+    ws.onopen = async () => {
+      try {
+        isAuthorized = true;
+        setStatus(`Conectado ${getAccountLabel(activeAccountMode)}: ${activeAccountId}`, activeAccountMode === 'real' ? 'realStatus' : 'ok');
+        addLog(`Conectado API nueva ${getAccountLabel(activeAccountMode)} · ${activeAccountId}.`, activeAccountMode === 'real' ? 'warn' : 'ok');
+        await subscribeBalance();
+      } catch (err) {
+        addLog(`Conectó, pero falló balance: ${err.message}`, 'err');
+      } finally {
+        els.connectBtn.disabled = false;
+        updateUi();
+      }
+    };
 
-      const actualMode = isDemoLogin(activeLoginId) ? 'demo' : 'real';
-      if (actualMode !== requestedMode) {
-        addLog(`Aviso: seleccionaste ${requestedLabel}, pero el token parece de cuenta ${getAccountLabel(actualMode)} (${activeLoginId}).`, 'warn');
-        activeAccountMode = actualMode;
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      if (msg.error && msg.req_id && pending.has(msg.req_id)) {
+        const { reject, timeout } = pending.get(msg.req_id);
+        clearTimeout(timeout);
+        pending.delete(msg.req_id);
+        reject(new Error(msg.error.message || 'Error Deriv'));
+        return;
       }
 
-      setStatus(`Conectado ${getAccountLabel(activeAccountMode)}: ${activeLoginId}`, activeAccountMode === 'real' ? 'realStatus' : 'ok');
-      addLog(`Conectado en modo ${getAccountLabel(activeAccountMode)} a ${activeLoginId}.`, activeAccountMode === 'real' ? 'warn' : 'ok');
-      await subscribeBalance();
-    } catch (err) {
-      addLog(`Error al autorizar ${requestedLabel}: ${err.message}`, 'err');
-      setStatus('Error de autorización', 'err');
-      disconnect();
-    } finally {
+      if (msg.req_id && pending.has(msg.req_id)) {
+        const { resolve, timeout } = pending.get(msg.req_id);
+        clearTimeout(timeout);
+        pending.delete(msg.req_id);
+        resolve(msg);
+        return;
+      }
+
+      if (msg.error) {
+        addLog(`Error Deriv: ${msg.error.message || JSON.stringify(msg.error)}`, 'err');
+        return;
+      }
+
+      if (msg.msg_type === 'balance' && msg.balance) {
+        balance = Number(msg.balance.balance);
+        currency = msg.balance.currency || currency;
+        if (msg.subscription?.id) balanceSubscriptionId = msg.subscription.id;
+        updateUi();
+        return;
+      }
+
+      if (msg.msg_type === 'proposal_open_contract' && msg.proposal_open_contract) {
+        handleContractUpdate(msg.proposal_open_contract, msg.subscription?.id);
+      }
+    };
+
+    ws.onerror = () => {
+      addLog('Error de conexión WebSocket.', 'err');
+      setStatus('Error de conexión', 'err');
+    };
+
+    ws.onclose = () => {
+      isAuthorized = false;
+      isSendingOrder = false;
+      activeAccountId = null;
+      setStatus('Desconectado');
       els.connectBtn.disabled = false;
       updateUi();
-    }
-  };
-
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-
-    if (msg.req_id && pending.has(msg.req_id)) {
-      const { resolve, reject, timeout } = pending.get(msg.req_id);
-      clearTimeout(timeout);
-      pending.delete(msg.req_id);
-      if (msg.error) reject(new Error(msg.error.message));
-      else resolve(msg);
-      return;
-    }
-
-    if (msg.msg_type === 'balance' && msg.balance) {
-      balance = Number(msg.balance.balance);
-      currency = msg.balance.currency || currency;
-      if (msg.subscription?.id) balanceSubscriptionId = msg.subscription.id;
-      updateUi();
-      return;
-    }
-
-    if (msg.msg_type === 'proposal_open_contract' && msg.proposal_open_contract) {
-      handleContractUpdate(msg.proposal_open_contract, msg.subscription?.id);
-    }
-  };
-
-  ws.onerror = () => {
-    addLog('Error de conexión WebSocket.', 'err');
-    setStatus('Error de conexión', 'err');
-  };
-
-  ws.onclose = () => {
-    isAuthorized = false;
-    isSendingOrder = false;
-    activeLoginId = null;
-    setStatus('Desconectado');
+    };
+  } catch (err) {
+    addLog(`Error API nueva ${requestedLabel}: ${err.message}`, 'err');
+    setStatus('Error API nueva', 'err');
+    disconnect();
     els.connectBtn.disabled = false;
     updateUi();
-  };
-}
-
-function isDemoLogin(loginid) {
-  return String(loginid || '').toUpperCase().startsWith('VRTC');
+  }
 }
 
 function disconnect() {
@@ -238,7 +274,7 @@ function disconnect() {
   ws = null;
   isAuthorized = false;
   isSendingOrder = false;
-  activeLoginId = null;
+  activeAccountId = null;
   balance = null;
   balanceSubscriptionId = null;
   contractSubscriptionId = null;
@@ -270,9 +306,7 @@ function getIcConfig() {
 function getLevelForBalance(value) {
   const { step, max } = getIcConfig();
   if (!Number.isFinite(value) || value <= 0) return step;
-
   if (value >= max) return max;
-
   const level = Math.floor(value / step) * step;
   return Math.max(step, level || step);
 }
@@ -283,11 +317,15 @@ function getStake() {
   return Number((level * pct).toFixed(2));
 }
 
-
-function setPinButton(isTop) {
-  els.pinBtn.textContent = isTop ? '📌 Encima: ON' : '📌 Encima: OFF';
-  els.pinBtn.classList.toggle('isOn', Boolean(isTop));
-  els.pinBtn.classList.toggle('isOff', !isTop);
+function setPinButton(state) {
+  const enabled = typeof state === 'boolean' ? state : Boolean(state?.enabled);
+  const actual = typeof state === 'object' ? Boolean(state?.actual) : enabled;
+  els.pinBtn.textContent = enabled ? '📌 Encima: ON' : '📌 Encima: OFF';
+  els.pinBtn.title = enabled
+    ? `Mantener encima activado${actual ? '' : ' (Windows todavía no lo confirmó)'}`
+    : 'Mantener encima desactivado';
+  els.pinBtn.classList.toggle('isOn', enabled);
+  els.pinBtn.classList.toggle('isOff', !enabled);
 }
 
 function updateAccountModeUi() {
@@ -308,7 +346,7 @@ function updateUi() {
   const stake = getStake();
 
   els.accountText.textContent = isAuthorized
-    ? `${getAccountLabel(activeAccountMode)} ${activeLoginId || ''}`.trim()
+    ? `${getAccountLabel(activeAccountMode)} ${activeAccountId || ''}`.trim()
     : getAccountLabel(getSelectedAccountMode());
   els.accountText.className = isAuthorized && activeAccountMode === 'real' ? 'realAccount' : '';
 
@@ -322,6 +360,8 @@ function updateUi() {
 
   const mode = els.modeSelect.value;
   els.barrierWrap.classList.toggle('hidden', mode !== 'higher_lower');
+  els.manualSymbolWrap.classList.toggle('hidden', els.symbolSelect.value !== 'custom');
+
   if (mode === 'higher_lower') {
     els.buyBtn.innerHTML = 'HIGHER<br><span>CALL con barrera</span>';
     els.sellBtn.innerHTML = 'LOWER<br><span>PUT con barrera</span>';
@@ -336,13 +376,18 @@ async function executeTrade(side) {
   saveSettings();
 
   const mode = els.modeSelect.value;
-  const symbol = els.symbolSelect.value;
+  const symbol = getSymbol();
   const stake = getStake();
   const contractType = side === 'buy' ? 'CALL' : 'PUT';
   const duration = Number(els.durationInput.value || 1);
   const durationUnit = els.durationUnitSelect.value;
   const barrier = String(els.barrierInput.value || '').trim();
   const accountLabel = getAccountLabel(activeAccountMode);
+
+  if (!symbol) {
+    addLog('Falta seleccionar/cargar el símbolo.', 'err');
+    return;
+  }
 
   if (mode === 'higher_lower' && !barrier) {
     addLog('En Higher/Lower falta cargar la barrera.', 'err');
@@ -370,7 +415,7 @@ async function executeTrade(side) {
       currency,
       duration,
       duration_unit: durationUnit,
-      symbol
+      underlying_symbol: symbol
     };
 
     if (mode === 'higher_lower') proposalReq.barrier = barrier;
@@ -401,7 +446,6 @@ async function subscribeContract(contractId) {
 
 async function handleContractUpdate(contract, subId) {
   if (subId) contractSubscriptionId = subId;
-
   if (!contract.is_sold) return;
 
   const profit = Number(contract.profit || 0);
@@ -424,20 +468,69 @@ async function handleContractUpdate(contract, subId) {
   updateUi();
 }
 
+async function listOptionsAccounts() {
+  saveSettings();
+  const appId = String(els.appIdInput.value || '').trim();
+  const token = getSelectedToken();
+  const label = getAccountLabel(getSelectedAccountMode());
+
+  els.accountsBox.classList.remove('hidden');
+  els.accountsBox.innerHTML = 'Buscando cuentas...';
+  els.accountsBtn.disabled = true;
+
+  try {
+    const data = await window.electronAPI.getOptionsAccounts({ appId, token });
+    const accounts = Array.isArray(data) ? data : (Array.isArray(data?.accounts) ? data.accounts : []);
+
+    if (!accounts.length) {
+      els.accountsBox.innerHTML = 'No se encontraron cuentas en la respuesta.';
+      addLog(`No se encontraron cuentas Options usando token ${label}.`, 'warn');
+      return;
+    }
+
+    els.accountsBox.innerHTML = accounts.map((acc) => {
+      const id = acc.account_id || acc.id || acc.loginid || acc.accountId || '';
+      const type = acc.account_type || acc.type || acc.group || '';
+      const cur = acc.currency || '';
+      return `<button class="accountChoice" data-id="${escapeHtml(id)}">${escapeHtml(id)} <span>${escapeHtml(type)} ${escapeHtml(cur)}</span></button>`;
+    }).join('');
+
+    els.accountsBox.querySelectorAll('.accountChoice').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id') || '';
+        if (getSelectedAccountMode() === 'real') els.realAccountIdInput.value = id;
+        else els.demoAccountIdInput.value = id;
+        saveSettings();
+        updateUi();
+        addLog(`Account ID ${label} cargado: ${id}`, 'ok');
+      });
+    });
+
+    addLog(`Cuentas Options encontradas para ${label}. Tocá una para cargarla.`, 'ok');
+  } catch (err) {
+    els.accountsBox.innerHTML = escapeHtml(`Error: ${err.message}`);
+    addLog(`Error buscando cuentas: ${err.message}`, 'err');
+  } finally {
+    els.accountsBtn.disabled = false;
+  }
+}
+
 els.connectBtn.addEventListener('click', connect);
+els.accountsBtn.addEventListener('click', listOptionsAccounts);
 els.buyBtn.addEventListener('click', () => executeTrade('buy'));
 els.sellBtn.addEventListener('click', () => executeTrade('sell'));
 els.accountModeSelect.addEventListener('change', () => {
   saveSettings();
   if (isAuthorized) {
-    addLog(`Cambio a modo ${getAccountLabel(getSelectedAccountMode())}. Reconectá para usar ese token.`, 'warn');
+    addLog(`Cambio a modo ${getAccountLabel(getSelectedAccountMode())}. Reconectá para usar esa cuenta.`, 'warn');
     disconnect();
   }
   updateUi();
 });
 els.modeSelect.addEventListener('change', () => { saveSettings(); updateUi(); });
+els.symbolSelect.addEventListener('change', () => { saveSettings(); updateUi(); });
 [
-  els.symbolSelect,
+  els.manualSymbolInput,
   els.barrierInput,
   els.durationInput,
   els.durationUnitSelect,
@@ -445,6 +538,8 @@ els.modeSelect.addEventListener('change', () => { saveSettings(); updateUi(); })
   els.maxInput,
   els.pctInput,
   els.appIdInput,
+  els.demoAccountIdInput,
+  els.realAccountIdInput,
   els.demoTokenInput,
   els.realTokenInput
 ].forEach(el => {
@@ -457,16 +552,30 @@ els.clearLogBtn.addEventListener('click', () => {
   renderLog();
 });
 els.pinBtn.addEventListener('click', async () => {
-  const isTop = await window.electronAPI.toggleAlwaysOnTop();
-  setPinButton(isTop);
+  const goingOn = !els.pinBtn.classList.contains('isOn');
+  setPinButton(goingOn);
+  try {
+    const state = await window.electronAPI.setAlwaysOnTop(goingOn);
+    setPinButton(state);
+    addLog(`Mantener encima: ${state.enabled ? 'ON' : 'OFF'}.`, state.enabled ? 'ok' : 'warn');
+  } catch (err) {
+    addLog(`No pude cambiar Encima: ${err.message}`, 'err');
+  }
 });
+
+if (window.electronAPI?.onAlwaysOnTopState) {
+  window.electronAPI.onAlwaysOnTopState((state) => setPinButton(state));
+}
 
 (async function init() {
   loadSettings();
   renderLog();
   updateUi();
   try {
-    const isTop = await window.electronAPI.isAlwaysOnTop();
-    setPinButton(isTop);
-  } catch (_) {}
+    const state = await window.electronAPI.isAlwaysOnTop();
+    setPinButton(state);
+  } catch (err) {
+    setPinButton(false);
+    addLog(`IPC Encima no disponible: ${err.message}`, 'err');
+  }
 })();

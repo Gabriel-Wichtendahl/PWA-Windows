@@ -21,11 +21,17 @@
         <div>
           <label>Par</label>
           <select id="symbolSelect">
-            <option value="R_10">Volatility 10 Index - R_10</option>
-            <option value="R_25">Volatility 25 Index - R_25</option>
-            <option value="R_50">Volatility 50 Index - R_50</option>
-            <option value="R_75">Volatility 75 Index - R_75</option>
-            <option value="R_100">Volatility 100 Index - R_100</option>
+            <option value="1HZ10V">Volatility 10 Index - 1HZ10V</option>
+            <option value="1HZ25V">Volatility 25 Index - 1HZ25V</option>
+            <option value="1HZ50V">Volatility 50 Index - 1HZ50V</option>
+            <option value="1HZ75V">Volatility 75 Index - 1HZ75V</option>
+            <option value="1HZ100V">Volatility 100 Index - 1HZ100V</option>
+            <option value="R_10">Legacy R_10</option>
+            <option value="R_25">Legacy R_25</option>
+            <option value="R_50">Legacy R_50</option>
+            <option value="R_75">Legacy R_75</option>
+            <option value="R_100">Legacy R_100</option>
+            <option value="custom">Manual...</option>
           </select>
         </div>
         <div>
@@ -35,6 +41,11 @@
             <option value="higher_lower">Higher/Lower</option>
           </select>
         </div>
+      </div>
+
+      <div id="manualSymbolWrap" class="hidden">
+        <label>Símbolo manual</label>
+        <input id="manualSymbolInput" type="text" placeholder="Ej: 1HZ75V" autocomplete="off" spellcheck="false" />
       </div>
 
       <div class="row compactRow">
@@ -47,13 +58,14 @@
           <select id="durationUnitSelect">
             <option value="m">Minutos</option>
             <option value="t">Ticks</option>
+            <option value="s">Segundos</option>
           </select>
         </div>
       </div>
 
       <div id="barrierWrap" class="hidden">
         <label>Barrera Higher/Lower</label>
-        <input id="barrierInput" placeholder="Ej: +0.10, -0.10 o precio exacto" />
+        <input id="barrierInput" placeholder="Ej: +0.10, -0.10 o precio exacto" autocomplete="off" spellcheck="false" />
         <p class="hint">En Higher/Lower Deriv necesita barrera. La app envía CALL/PUT con este valor.</p>
       </div>
     </section>
@@ -90,9 +102,11 @@
 
     <section class="card">
       <details open>
-        <summary>Conexión DEMO / REAL</summary>
-        <label>App ID</label>
-        <input id="appIdInput" type="number" value="1089" inputmode="numeric" />
+        <summary>Conexión API nueva DEMO / REAL</summary>
+
+        <label>App ID nuevo Deriv</label>
+        <input id="appIdInput" type="text" placeholder="Ej: app_xxxxx / app12345" autocomplete="off" spellcheck="false" />
+        <p class="hint">Campo sin límite numérico: podés pegar App IDs largos o con letras.</p>
 
         <label>Modo de cuenta</label>
         <select id="accountModeSelect">
@@ -101,13 +115,28 @@
         </select>
         <p id="accountWarning" class="hint demoHint">Modo demo activo. Ideal para testear sin tocar saldo real.</p>
 
-        <label>Token Deriv DEMO</label>
-        <input id="demoTokenInput" type="password" placeholder="Pegar token de cuenta virtual/demo" />
+        <div class="row">
+          <div>
+            <label>Account ID DEMO</label>
+            <input id="demoAccountIdInput" type="text" placeholder="Ej: DOT..." autocomplete="off" spellcheck="false" />
+          </div>
+          <div>
+            <label>Account ID REAL</label>
+            <input id="realAccountIdInput" type="text" placeholder="Ej: DOT..." autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
 
-        <label>Token Deriv REAL</label>
-        <input id="realTokenInput" type="password" placeholder="Pegar token real solo cuando vayas a operar real" />
+        <label>Authorization token DEMO</label>
+        <input id="demoTokenInput" type="password" placeholder="Bearer/PAT/OAuth token con permiso trade" autocomplete="off" />
 
-        <button id="connectBtn" class="primaryBtn">Conectar DEMO</button>
+        <label>Authorization token REAL</label>
+        <input id="realTokenInput" type="password" placeholder="Bearer/PAT/OAuth token real con permiso trade" autocomplete="off" />
+
+        <div class="row btnRow">
+          <button id="accountsBtn" class="secondaryBtn">Buscar cuentas</button>
+          <button id="connectBtn" class="primaryBtn">Conectar DEMO</button>
+        </div>
+        <div id="accountsBox" class="accountsBox hidden"></div>
       </details>
     </section>
 

@@ -2,5 +2,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   toggleAlwaysOnTop: () => ipcRenderer.invoke('toggle-always-on-top'),
-  isAlwaysOnTop: () => ipcRenderer.invoke('is-always-on-top')
+  setAlwaysOnTop: (enabled) => ipcRenderer.invoke('set-always-on-top', enabled),
+  isAlwaysOnTop: () => ipcRenderer.invoke('is-always-on-top'),
+  onAlwaysOnTopState: (callback) => ipcRenderer.on('always-on-top-state', (_event, state) => callback(state)),
+  getOtpWebSocketUrl: (payload) => ipcRenderer.invoke('get-otp-websocket-url', payload),
+  getOptionsAccounts: (payload) => ipcRenderer.invoke('get-options-accounts', payload)
 });
