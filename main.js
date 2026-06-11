@@ -2,15 +2,27 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
 let mainWindow;
+let alwaysOnTopState = true;
+
+function applyAlwaysOnTop() {
+  if (!mainWindow) return false;
+  if (alwaysOnTopState) {
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  } else {
+    mainWindow.setAlwaysOnTop(false);
+    mainWindow.moveTop();
+  }
+  return alwaysOnTopState;
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 390,
-    height: 780,
-    minWidth: 340,
-    minHeight: 620,
+    width: 430,
+    height: 820,
+    minWidth: 380,
+    minHeight: 640,
     title: 'Deriv IC Panel',
-    alwaysOnTop: true,
+    alwaysOnTop: alwaysOnTopState,
     resizable: true,
     backgroundColor: '#111827',
     webPreferences: {
@@ -20,7 +32,7 @@ function createWindow() {
     }
   });
 
-  mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  applyAlwaysOnTop();
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 }
 
@@ -37,12 +49,10 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.handle('toggle-always-on-top', () => {
-  if (!mainWindow) return false;
-  const next = !mainWindow.isAlwaysOnTop();
-  mainWindow.setAlwaysOnTop(next, next ? 'screen-saver' : 'normal');
-  return next;
+  alwaysOnTopState = !alwaysOnTopState;
+  return applyAlwaysOnTop();
 });
 
 ipcMain.handle('is-always-on-top', () => {
-  return mainWindow ? mainWindow.isAlwaysOnTop() : false;
+  return alwaysOnTopState;
 });

@@ -5,32 +5,34 @@ body {
   background: #0f172a;
   color: #e5e7eb;
 }
-.app { padding: 14px; }
+.app { padding: 12px; }
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  gap: 10px;
 }
-h1 { margin: 0; font-size: 24px; }
+h1 { margin: 0; font-size: 23px; }
 p { margin: 4px 0 0; color: #9ca3af; font-size: 13px; }
 .card {
   background: #111827;
   border: 1px solid #263244;
   border-radius: 14px;
-  padding: 12px;
-  margin-bottom: 12px;
+  padding: 11px;
+  margin-bottom: 10px;
   box-shadow: 0 10px 24px rgba(0,0,0,.18);
 }
+.setupCard { margin-bottom: 10px; }
 .compact { padding: 10px 12px; }
-label { display: block; margin: 8px 0 6px; color: #cbd5e1; font-size: 13px; }
+label { display: block; margin: 7px 0 5px; color: #cbd5e1; font-size: 13px; }
 input, select {
   width: 100%;
   background: #0b1220;
   color: #f9fafb;
   border: 1px solid #334155;
   border-radius: 10px;
-  padding: 10px;
+  padding: 9px;
   outline: none;
 }
 input:focus, select:focus { border-color: #60a5fa; }
@@ -52,26 +54,55 @@ input:focus, select:focus { border-color: #60a5fa; }
   border: 1px solid #374151;
   padding: 8px 10px;
   font-size: 12px;
+  white-space: nowrap;
+}
+.pinBtn.isOff {
+  background: #3f1d1d;
+  border-color: #7f1d1d;
+}
+.pinBtn.isOn {
+  background: #12351f;
+  border-color: #166534;
 }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .labelSmall { display: block; color: #94a3b8; font-size: 12px; margin-bottom: 2px; }
-strong { font-size: 18px; }
+strong { font-size: 17px; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.tradePanel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.compactRow { margin-top: 2px; }
+.tradeLayout {
+  display: grid;
+  grid-template-columns: minmax(145px, 170px) 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: stretch;
+}
+.tradeButtonsLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .tradeBtn {
   min-height: 92px;
   border: 0;
   border-radius: 18px;
   color: white;
-  font-size: 22px;
+  font-size: 21px;
   font-weight: 900;
   cursor: pointer;
   box-shadow: 0 12px 28px rgba(0,0,0,.25);
+  width: 100%;
 }
 .tradeBtn span { font-size: 11px; font-weight: 700; opacity: .88; }
 .buy { background: linear-gradient(135deg, #059669, #16a34a); }
 .sell { background: linear-gradient(135deg, #dc2626, #f97316); }
 .tradeBtn:disabled, .primaryBtn:disabled { opacity: .45; cursor: not-allowed; }
+.sideStats {
+  margin-bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-content: start;
+}
 .hidden { display: none; }
 .hint { font-size: 12px; color: #94a3b8; }
 .logCard { max-height: 190px; overflow: auto; }
@@ -93,3 +124,9 @@ summary { cursor: pointer; color: #dbeafe; font-weight: 700; }
 }
 .realStatus { color: #f97316; }
 .realAccount { color: #fb923c; }
+
+@media (max-width: 390px) {
+  .tradeLayout { grid-template-columns: 1fr; }
+  .tradeButtonsLeft { max-width: 180px; }
+  .sideStats { grid-template-columns: 1fr 1fr; }
+}

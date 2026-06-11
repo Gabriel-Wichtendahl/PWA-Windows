@@ -283,6 +283,13 @@ function getStake() {
   return Number((level * pct).toFixed(2));
 }
 
+
+function setPinButton(isTop) {
+  els.pinBtn.textContent = isTop ? '📌 Encima: ON' : '📌 Encima: OFF';
+  els.pinBtn.classList.toggle('isOn', Boolean(isTop));
+  els.pinBtn.classList.toggle('isOff', !isTop);
+}
+
 function updateAccountModeUi() {
   const selectedMode = getSelectedAccountMode();
   const selectedLabel = getAccountLabel(selectedMode);
@@ -451,7 +458,7 @@ els.clearLogBtn.addEventListener('click', () => {
 });
 els.pinBtn.addEventListener('click', async () => {
   const isTop = await window.electronAPI.toggleAlwaysOnTop();
-  els.pinBtn.textContent = isTop ? '📌 ON' : '📌 OFF';
+  setPinButton(isTop);
 });
 
 (async function init() {
@@ -460,6 +467,6 @@ els.pinBtn.addEventListener('click', async () => {
   updateUi();
   try {
     const isTop = await window.electronAPI.isAlwaysOnTop();
-    els.pinBtn.textContent = isTop ? '📌 ON' : '📌 OFF';
+    setPinButton(isTop);
   } catch (_) {}
 })();

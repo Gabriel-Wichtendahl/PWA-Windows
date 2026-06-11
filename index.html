@@ -13,75 +13,31 @@
         <h1>Deriv IC</h1>
         <p id="connectionStatus">Desconectado</p>
       </div>
-      <button id="pinBtn" class="smallBtn" title="Mantener encima">📌 ON</button>
+      <button id="pinBtn" class="smallBtn pinBtn" title="Mantener encima">📌 Encima: ON</button>
     </header>
 
-    <section class="card">
-      <label>App ID</label>
-      <input id="appIdInput" type="number" value="1089" inputmode="numeric" />
-
-      <label>Modo de cuenta</label>
-      <select id="accountModeSelect">
-        <option value="demo">DEMO / Virtual</option>
-        <option value="real">REAL</option>
-      </select>
-      <p id="accountWarning" class="hint demoHint">Modo demo activo. Ideal para testear sin tocar saldo real.</p>
-
-      <label>Token Deriv DEMO</label>
-      <input id="demoTokenInput" type="password" placeholder="Pegar token de cuenta virtual/demo" />
-
-      <label>Token Deriv REAL</label>
-      <input id="realTokenInput" type="password" placeholder="Pegar token real solo cuando vayas a operar real" />
-
-      <button id="connectBtn" class="primaryBtn">Conectar DEMO</button>
-    </section>
-
-    <section class="card grid2">
-      <div>
-        <span class="labelSmall">Cuenta</span>
-        <strong id="accountText">—</strong>
-      </div>
-      <div>
-        <span class="labelSmall">Saldo</span>
-        <strong id="balanceText">—</strong>
-      </div>
-      <div>
-        <span class="labelSmall">Nivel IC</span>
-        <strong id="levelText">—</strong>
-      </div>
-      <div>
-        <span class="labelSmall">Stake 5%</span>
-        <strong id="stakeText">—</strong>
-      </div>
-      <div>
-        <span class="labelSmall">Último</span>
-        <strong id="lastResultText">—</strong>
-      </div>
-    </section>
-
-    <section class="card">
-      <label>Par</label>
-      <select id="symbolSelect">
-        <option value="R_10">Volatility 10 Index - R_10</option>
-        <option value="R_25">Volatility 25 Index - R_25</option>
-        <option value="R_50">Volatility 50 Index - R_50</option>
-        <option value="R_75">Volatility 75 Index - R_75</option>
-        <option value="R_100">Volatility 100 Index - R_100</option>
-      </select>
-
-      <label>Tipo</label>
-      <select id="modeSelect">
-        <option value="rise_fall">Rise/Fall - Compra/Venta</option>
-        <option value="higher_lower">Higher/Lower - con barrera</option>
-      </select>
-
-      <div id="barrierWrap" class="hidden">
-        <label>Barrera Higher/Lower</label>
-        <input id="barrierInput" placeholder="Ej: +0.10, -0.10 o precio exacto" />
-        <p class="hint">En Higher/Lower Deriv necesita barrera. La app envía CALL/PUT con este valor.</p>
-      </div>
-
+    <section class="card setupCard">
       <div class="row">
+        <div>
+          <label>Par</label>
+          <select id="symbolSelect">
+            <option value="R_10">Volatility 10 Index - R_10</option>
+            <option value="R_25">Volatility 25 Index - R_25</option>
+            <option value="R_50">Volatility 50 Index - R_50</option>
+            <option value="R_75">Volatility 75 Index - R_75</option>
+            <option value="R_100">Volatility 100 Index - R_100</option>
+          </select>
+        </div>
+        <div>
+          <label>Tipo</label>
+          <select id="modeSelect">
+            <option value="rise_fall">Rise/Fall</option>
+            <option value="higher_lower">Higher/Lower</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row compactRow">
         <div>
           <label>Duración</label>
           <input id="durationInput" type="number" value="1" min="1" />
@@ -94,11 +50,65 @@
           </select>
         </div>
       </div>
+
+      <div id="barrierWrap" class="hidden">
+        <label>Barrera Higher/Lower</label>
+        <input id="barrierInput" placeholder="Ej: +0.10, -0.10 o precio exacto" />
+        <p class="hint">En Higher/Lower Deriv necesita barrera. La app envía CALL/PUT con este valor.</p>
+      </div>
     </section>
 
-    <section class="tradePanel">
-      <button id="buyBtn" class="tradeBtn buy">COMPRA<br><span>CALL / HIGHER</span></button>
-      <button id="sellBtn" class="tradeBtn sell">VENTA<br><span>PUT / LOWER</span></button>
+    <section class="tradeLayout">
+      <div class="tradeButtonsLeft">
+        <button id="buyBtn" class="tradeBtn buy">COMPRA<br><span>CALL / RISE</span></button>
+        <button id="sellBtn" class="tradeBtn sell">VENTA<br><span>PUT / FALL</span></button>
+      </div>
+
+      <div class="sideStats card">
+        <div>
+          <span class="labelSmall">Cuenta</span>
+          <strong id="accountText">—</strong>
+        </div>
+        <div>
+          <span class="labelSmall">Saldo</span>
+          <strong id="balanceText">—</strong>
+        </div>
+        <div>
+          <span class="labelSmall">Nivel IC</span>
+          <strong id="levelText">—</strong>
+        </div>
+        <div>
+          <span class="labelSmall">Stake 5%</span>
+          <strong id="stakeText">—</strong>
+        </div>
+        <div>
+          <span class="labelSmall">Último</span>
+          <strong id="lastResultText">—</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <details open>
+        <summary>Conexión DEMO / REAL</summary>
+        <label>App ID</label>
+        <input id="appIdInput" type="number" value="1089" inputmode="numeric" />
+
+        <label>Modo de cuenta</label>
+        <select id="accountModeSelect">
+          <option value="demo">DEMO / Virtual</option>
+          <option value="real">REAL</option>
+        </select>
+        <p id="accountWarning" class="hint demoHint">Modo demo activo. Ideal para testear sin tocar saldo real.</p>
+
+        <label>Token Deriv DEMO</label>
+        <input id="demoTokenInput" type="password" placeholder="Pegar token de cuenta virtual/demo" />
+
+        <label>Token Deriv REAL</label>
+        <input id="realTokenInput" type="password" placeholder="Pegar token real solo cuando vayas a operar real" />
+
+        <button id="connectBtn" class="primaryBtn">Conectar DEMO</button>
+      </details>
     </section>
 
     <section class="card compact">
