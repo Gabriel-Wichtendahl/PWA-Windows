@@ -2,6 +2,9 @@ const $ = (id) => document.getElementById(id);
 
 const els = {
   appIdInput: $('appIdInput'),
+  redirectUriInput: $('redirectUriInput'),
+  oauthLoginBtn: $('oauthLoginBtn'),
+  oauthStatus: $('oauthStatus'),
   accountModeSelect: $('accountModeSelect'),
   accountWarning: $('accountWarning'),
   demoAccountIdInput: $('demoAccountIdInput'),
@@ -77,6 +80,7 @@ function getSymbol() {
 function saveSettings() {
   localStorage.setItem('derivIcSettings', JSON.stringify({
     appId: els.appIdInput.value,
+    redirectUri: els.redirectUriInput.value,
     accountMode: els.accountModeSelect.value,
     demoAccountId: els.demoAccountIdInput.value,
     realAccountId: els.realAccountIdInput.value,
@@ -100,6 +104,7 @@ function loadSettings() {
   try {
     const s = JSON.parse(raw);
     if (s.appId) els.appIdInput.value = s.appId;
+    if (s.redirectUri) els.redirectUriInput.value = s.redirectUri;
     if (s.accountMode) els.accountModeSelect.value = s.accountMode;
     if (s.demoAccountId) els.demoAccountIdInput.value = s.demoAccountId;
     if (s.realAccountId) els.realAccountIdInput.value = s.realAccountId;
@@ -162,6 +167,47 @@ function send(payload) {
     }, 15000);
     pending.set(id, { resolve, reject, timeout });
   });
+}
+
+async function oauthLogin() {
+  saveSettings();
+  const clientId = String(els.appIdInput.value || '').trim();
+  const redirectUri = String(els.redirectUriInput.value || '').trim();
+
+  if (!clientId || !redirectUri) {
+    addLog('Falta Client ID/App ID o Redirect URL para OAuth.', 'err');
+    return;
+  }
+
+  els.oauthLoginBtn.disabled = true;
+  els.oauthStatus.textContent = 'Abriendo login de Deriv...';
+  addLog('Iniciando login OAuth con Deriv...', 'warn');
+
+  try {
+    const tokenData = await window.electronAPI.oauthLogin({ clientId, redirectUri });
+    const accessToken = tokenData.access_token;
+    const expiresIn = Number(tokenData.expires_in || 0);
+
+    if (!accessToken) throw new Error('No se recibió access_token.');
+
+    // El token OAuth sirve para consultar las cuentas Options del usuario.
+    // Lo copiamos en ambos campos para que después elijas DEMO o REAL por Account ID.
+    els.demoTokenInput.value = accessToken;
+    els.realTokenInput.value = accessToken;
+    saveSettings();
+
+    els.oauthStatus.textContent = expiresIn
+      ? `Login correcto. Token cargado. Expira aprox. en ${Math.round(expiresIn / 60)} min.`
+      : 'Login correcto. Token cargado.';
+    addLog('OAuth correcto. Token cargado en DEMO y REAL. Ahora buscá/cargá la cuenta.', 'ok');
+
+    await listOptionsAccounts();
+  } catch (err) {
+    els.oauthStatus.textContent = `Error OAuth: ${err.message}`;
+    addLog(`Error OAuth: ${err.message}`, 'err');
+  } finally {
+    els.oauthLoginBtn.disabled = false;
+  }
 }
 
 async function connect() {
@@ -515,6 +561,7 @@ async function listOptionsAccounts() {
   }
 }
 
+els.oauthLoginBtn.addEventListener('click', oauthLogin);
 els.connectBtn.addEventListener('click', connect);
 els.accountsBtn.addEventListener('click', listOptionsAccounts);
 els.buyBtn.addEventListener('click', () => executeTrade('buy'));
@@ -538,6 +585,7 @@ els.symbolSelect.addEventListener('change', () => { saveSettings(); updateUi(); 
   els.maxInput,
   els.pctInput,
   els.appIdInput,
+  els.redirectUriInput,
   els.demoAccountIdInput,
   els.realAccountIdInput,
   els.demoTokenInput,

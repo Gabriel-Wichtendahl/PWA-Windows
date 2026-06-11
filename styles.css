@@ -166,3 +166,15 @@ summary { cursor: pointer; color: #dbeafe; font-weight: 700; }
   .sideStats { grid-template-columns: 1fr 1fr; }
   .row { grid-template-columns: 1fr; }
 }
+.oauthBtn {
+  width: 100%;
+  margin-top: 10px;
+  background: #7c3aed;
+  border: 1px solid #8b5cf6;
+  border-radius: 10px;
+  color: #fff;
+  cursor: pointer;
+  padding: 11px;
+  font-weight: 800;
+}
+.oauthBtn:disabled { opacity: .45; cursor: not-allowed; }

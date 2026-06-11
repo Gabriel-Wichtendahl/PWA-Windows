@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setAlwaysOnTop: (enabled) => ipcRenderer.invoke('set-always-on-top', enabled),
   isAlwaysOnTop: () => ipcRenderer.invoke('is-always-on-top'),
   onAlwaysOnTopState: (callback) => ipcRenderer.on('always-on-top-state', (_event, state) => callback(state)),
+  oauthLogin: (payload) => ipcRenderer.invoke('oauth-login', payload),
   getOtpWebSocketUrl: (payload) => ipcRenderer.invoke('get-otp-websocket-url', payload),
   getOptionsAccounts: (payload) => ipcRenderer.invoke('get-options-accounts', payload)
 });

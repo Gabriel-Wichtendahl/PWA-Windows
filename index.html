@@ -104,9 +104,16 @@
       <details open>
         <summary>Conexión API nueva DEMO / REAL</summary>
 
-        <label>App ID nuevo Deriv</label>
+        <label>Client ID / App ID nuevo Deriv</label>
         <input id="appIdInput" type="text" placeholder="Ej: app_xxxxx / app12345" autocomplete="off" spellcheck="false" />
-        <p class="hint">Campo sin límite numérico: podés pegar App IDs largos o con letras.</p>
+        <p class="hint">Campo sin límite numérico: podés pegar IDs largos o con letras.</p>
+
+        <label>Redirect URL registrada</label>
+        <input id="redirectUriInput" type="text" value="https://gabriel-wichtendahl.github.io/PWA-Windows/callback.html" autocomplete="off" spellcheck="false" />
+        <p class="hint">Debe coincidir exacto con la URL que cargaste en Deriv Developers.</p>
+
+        <button id="oauthLoginBtn" class="oauthBtn">Login Deriv OAuth</button>
+        <p id="oauthStatus" class="hint">Esto abre Deriv, te logueás y la app carga el token automáticamente.</p>
 
         <label>Modo de cuenta</label>
         <select id="accountModeSelect">
@@ -126,10 +133,10 @@
           </div>
         </div>
 
-        <label>Authorization token DEMO</label>
+        <label>Token DEMO / OAuth</label>
         <input id="demoTokenInput" type="password" placeholder="Bearer/PAT/OAuth token con permiso trade" autocomplete="off" />
 
-        <label>Authorization token REAL</label>
+        <label>Token REAL / OAuth</label>
         <input id="realTokenInput" type="password" placeholder="Bearer/PAT/OAuth token real con permiso trade" autocomplete="off" />
 
         <div class="row btnRow">

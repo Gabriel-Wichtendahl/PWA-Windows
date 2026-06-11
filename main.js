@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const crypto = require('crypto');
 
 let mainWindow;
 let alwaysOnTopState = true;
@@ -104,6 +105,152 @@ ipcMain.handle('set-always-on-top', (_event, enabled) => {
 
 ipcMain.handle('is-always-on-top', () => {
   return applyAlwaysOnTop();
+});
+
+
+function base64Url(buffer) {
+  return Buffer.from(buffer)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function createPkce() {
+  const codeVerifier = base64Url(crypto.randomBytes(64));
+  const codeChallenge = base64Url(crypto.createHash('sha256').update(codeVerifier).digest());
+  const state = crypto.randomBytes(16).toString('hex');
+  return { codeVerifier, codeChallenge, state };
+}
+
+async function exchangeOAuthCode({ clientId, redirectUri, code, codeVerifier }) {
+  const response = await fetch('https://auth.deriv.com/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      code,
+      redirect_uri: redirectUri,
+      code_verifier: codeVerifier
+    })
+  });
+
+  let body;
+  try {
+    body = await response.json();
+  } catch (_) {
+    body = null;
+  }
+
+  if (!response.ok) {
+    const msg = body?.error_description || body?.error || body?.message || `HTTP ${response.status}`;
+    throw new Error(msg);
+  }
+
+  if (!body?.access_token) throw new Error('Deriv no devolvió access_token.');
+  return body;
+}
+
+ipcMain.handle('oauth-login', async (_event, { clientId, redirectUri }) => {
+  const cleanClientId = String(clientId || '').trim();
+  const cleanRedirectUri = String(redirectUri || '').trim();
+
+  if (!cleanClientId) throw new Error('Falta Client ID / App ID nuevo de Deriv.');
+  if (!cleanRedirectUri) throw new Error('Falta Redirect URL.');
+  if (!/^https:\/\//i.test(cleanRedirectUri)) throw new Error('La Redirect URL debe empezar con https://');
+
+  const { codeVerifier, codeChallenge, state } = createPkce();
+  const authUrl = new URL('https://auth.deriv.com/oauth2/auth');
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('client_id', cleanClientId);
+  authUrl.searchParams.set('redirect_uri', cleanRedirectUri);
+  authUrl.searchParams.set('scope', 'trade account_manage');
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('code_challenge', codeChallenge);
+  authUrl.searchParams.set('code_challenge_method', 'S256');
+
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const authWindow = new BrowserWindow({
+      width: 560,
+      height: 780,
+      title: 'Login Deriv OAuth',
+      parent: mainWindow || undefined,
+      modal: false,
+      autoHideMenuBar: true,
+      alwaysOnTop: true,
+      backgroundColor: '#111827',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true
+      }
+    });
+
+    authWindow.setAlwaysOnTop(true, 'pop-up-menu');
+    authWindow.loadURL(authUrl.toString());
+
+    const finish = (fn, value) => {
+      if (finished) return;
+      finished = true;
+      try {
+        if (!authWindow.isDestroyed()) authWindow.close();
+      } catch (_) {}
+      fn(value);
+    };
+
+    const handleUrl = async (navigationUrl) => {
+      if (!navigationUrl || !String(navigationUrl).startsWith(cleanRedirectUri)) return false;
+
+      try {
+        const parsed = new URL(navigationUrl);
+        const error = parsed.searchParams.get('error');
+        const errorDescription = parsed.searchParams.get('error_description');
+        if (error) throw new Error(errorDescription || error);
+
+        const code = parsed.searchParams.get('code');
+        const returnedState = parsed.searchParams.get('state');
+        if (!code) throw new Error('Deriv no devolvió authorization code.');
+        if (returnedState !== state) throw new Error('State inválido. Se canceló el login por seguridad.');
+
+        const tokenData = await exchangeOAuthCode({
+          clientId: cleanClientId,
+          redirectUri: cleanRedirectUri,
+          code,
+          codeVerifier
+        });
+
+        finish(resolve, tokenData);
+      } catch (err) {
+        finish(reject, err);
+      }
+
+      return true;
+    };
+
+    authWindow.webContents.on('will-redirect', (event, navigationUrl) => {
+      if (String(navigationUrl).startsWith(cleanRedirectUri)) {
+        event.preventDefault();
+        handleUrl(navigationUrl);
+      }
+    });
+
+    authWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+      if (String(navigationUrl).startsWith(cleanRedirectUri)) {
+        event.preventDefault();
+        handleUrl(navigationUrl);
+      }
+    });
+
+    authWindow.webContents.on('did-navigate', (_event, navigationUrl) => {
+      handleUrl(navigationUrl);
+    });
+
+    authWindow.on('closed', () => {
+      if (!finished) finish(reject, new Error('Login cancelado.'));
+    });
+  });
 });
 
 ipcMain.handle('get-otp-websocket-url', async (_event, { appId, token, accountId }) => {
