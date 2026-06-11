@@ -30,4 +30,4 @@ jobs:
         with:
           name: Deriv-IC-Panel-Windows-Portable
           path: dist/*.exe
-          if-no-files-found: errorw
+          if-no-files-found: error
