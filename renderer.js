@@ -35,7 +35,8 @@ const els = {
   pctInput: $('pctInput'),
   pinBtn: $('pinBtn'),
   clearLogBtn: $('clearLogBtn'),
-  log: $('log')
+  log: $('log'),
+  electronWarning: $('electronWarning')
 };
 
 let ws = null;
@@ -50,6 +51,36 @@ let activeAccountMode = 'demo';
 let balanceSubscriptionId = null;
 let contractSubscriptionId = null;
 let tradeLog = JSON.parse(localStorage.getItem('tradeLog') || '[]');
+
+function getElectronApi() {
+  return window.electronAPI || null;
+}
+
+function hasElectronApi(methodName) {
+  const api = getElectronApi();
+  if (!api) return false;
+  if (!methodName) return true;
+  return typeof api[methodName] === 'function';
+}
+
+function showElectronMissing(action = 'esta función') {
+  const msg = `${action} necesita Electron. Abriste la pantalla como web/PWA o no cargó preload.js. Cerrá esto y abrí la app con INICIAR_APP_WINDOWS.bat, npm start o el .exe generado.`;
+  if (els.electronWarning) {
+    els.electronWarning.classList.remove('hidden');
+  }
+  addLog(msg, 'err');
+  return msg;
+}
+
+function updateElectronEnvironmentUi() {
+  const ok = hasElectronApi();
+  if (els.electronWarning) els.electronWarning.classList.toggle('hidden', ok);
+  if (!ok) {
+    setPinButton(false);
+    els.pinBtn.title = 'No disponible fuera de Electron';
+  }
+  return ok;
+}
 
 function getSelectedAccountMode() {
   return els.accountModeSelect.value === 'real' ? 'real' : 'demo';
@@ -184,7 +215,8 @@ async function oauthLogin() {
   addLog('Iniciando login OAuth con Deriv...', 'warn');
 
   try {
-    const tokenData = await window.electronAPI.oauthLogin({ clientId, redirectUri });
+    if (!hasElectronApi('oauthLogin')) { showElectronMissing('OAuth/Login Deriv'); return; }
+    const tokenData = await getElectronApi().oauthLogin({ clientId, redirectUri });
     const accessToken = tokenData.access_token;
     const expiresIn = Number(tokenData.expires_in || 0);
 
@@ -230,7 +262,8 @@ async function connect() {
   els.connectBtn.disabled = true;
 
   try {
-    const wsUrl = await window.electronAPI.getOtpWebSocketUrl({ appId, token, accountId });
+    if (!hasElectronApi('getOtpWebSocketUrl')) { showElectronMissing('Conectar con API nueva'); throw new Error('Electron API no disponible'); }
+    const wsUrl = await getElectronApi().getOtpWebSocketUrl({ appId, token, accountId });
     const urlMode = String(wsUrl).includes('/ws/real') ? 'real' : String(wsUrl).includes('/ws/demo') ? 'demo' : requestedMode;
     if (urlMode !== requestedMode) {
       addLog(`Aviso: seleccionaste ${requestedLabel}, pero la URL OTP parece de cuenta ${getAccountLabel(urlMode)}.`, 'warn');
@@ -525,7 +558,8 @@ async function listOptionsAccounts() {
   els.accountsBtn.disabled = true;
 
   try {
-    const data = await window.electronAPI.getOptionsAccounts({ appId, token });
+    if (!hasElectronApi('getOptionsAccounts')) { showElectronMissing('Buscar cuentas'); return; }
+    const data = await getElectronApi().getOptionsAccounts({ appId, token });
     const accounts = Array.isArray(data) ? data : (Array.isArray(data?.accounts) ? data.accounts : []);
 
     if (!accounts.length) {
@@ -603,7 +637,8 @@ els.pinBtn.addEventListener('click', async () => {
   const goingOn = !els.pinBtn.classList.contains('isOn');
   setPinButton(goingOn);
   try {
-    const state = await window.electronAPI.setAlwaysOnTop(goingOn);
+    if (!hasElectronApi('setAlwaysOnTop')) { showElectronMissing('Mantener encima'); setPinButton(false); return; }
+    const state = await getElectronApi().setAlwaysOnTop(goingOn);
     setPinButton(state);
     addLog(`Mantener encima: ${state.enabled ? 'ON' : 'OFF'}.`, state.enabled ? 'ok' : 'warn');
   } catch (err) {
@@ -611,8 +646,8 @@ els.pinBtn.addEventListener('click', async () => {
   }
 });
 
-if (window.electronAPI?.onAlwaysOnTopState) {
-  window.electronAPI.onAlwaysOnTopState((state) => setPinButton(state));
+if (hasElectronApi('onAlwaysOnTopState')) {
+  getElectronApi().onAlwaysOnTopState((state) => setPinButton(state));
 }
 
 (async function init() {
@@ -620,7 +655,9 @@ if (window.electronAPI?.onAlwaysOnTopState) {
   renderLog();
   updateUi();
   try {
-    const state = await window.electronAPI.isAlwaysOnTop();
+    updateElectronEnvironmentUi();
+    if (!hasElectronApi('isAlwaysOnTop')) { showElectronMissing('Mantener encima'); return; }
+    const state = await getElectronApi().isAlwaysOnTop();
     setPinButton(state);
   } catch (err) {
     setPinButton(false);

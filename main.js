@@ -10,7 +10,8 @@ function forceTop() {
   if (!mainWindow || mainWindow.isDestroyed() || !alwaysOnTopState) return;
   // En Windows, `pop-up-menu` o superior queda por encima de ventanas normales y de la barra de tareas.
   // Reaplicamos porque algunas apps/navegadores pueden tomar el z-order al recibir foco.
-  mainWindow.setAlwaysOnTop(true, 'pop-up-menu');
+  mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  mainWindow.focus();
   mainWindow.moveTop();
 }
 
@@ -31,9 +32,10 @@ function applyAlwaysOnTop() {
   }
 
   if (alwaysOnTopState) {
-    mainWindow.setAlwaysOnTop(true, 'pop-up-menu');
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     mainWindow.show();
+    mainWindow.focus();
     mainWindow.moveTop();
     startKeepTopLoop();
   } else {
@@ -59,7 +61,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     }
   });
 
@@ -188,7 +191,7 @@ ipcMain.handle('oauth-login', async (_event, { clientId, redirectUri }) => {
       }
     });
 
-    authWindow.setAlwaysOnTop(true, 'pop-up-menu');
+    authWindow.setAlwaysOnTop(true, 'screen-saver');
     authWindow.loadURL(authUrl.toString());
 
     const finish = (fn, value) => {

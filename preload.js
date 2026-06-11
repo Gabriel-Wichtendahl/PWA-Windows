@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  isElectronBridge: true,
   toggleAlwaysOnTop: () => ipcRenderer.invoke('toggle-always-on-top'),
   setAlwaysOnTop: (enabled) => ipcRenderer.invoke('set-always-on-top', enabled),
   isAlwaysOnTop: () => ipcRenderer.invoke('is-always-on-top'),

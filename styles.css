@@ -178,3 +178,15 @@ summary { cursor: pointer; color: #dbeafe; font-weight: 700; }
   font-weight: 800;
 }
 .oauthBtn:disabled { opacity: .45; cursor: not-allowed; }
+
+.envWarning {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  background: #3b2a0a;
+  color: #fde68a;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.envWarning b { color: #fff7ed; }
