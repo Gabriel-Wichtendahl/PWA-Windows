@@ -1,1 +1,33 @@
+name: Crear EXE Windows Portable
 
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Crear EXE portable
+        run: npm run pack:win
+
+      - name: Subir EXE como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Deriv-IC-Panel-Windows-Portable
+          path: dist/*.exe
+          if-no-files-found: errorw
