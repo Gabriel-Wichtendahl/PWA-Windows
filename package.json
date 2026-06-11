@@ -1,0 +1,36 @@
+{
+  "name": "deriv-ic-panel-electron",
+  "version": "0.4.0",
+  "description": "Panel flotante Windows/Electron para Deriv con OAuth, Demo/Real e interés compuesto por niveles.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "pack:win": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.gabriel.derivicpanel",
+    "productName": "Deriv IC Panel",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "styles.css",
+      "renderer.js",
+      "callback.html",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    }
+  }
+}
