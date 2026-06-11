@@ -1,0 +1,95 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0f172a;
+  color: #e5e7eb;
+}
+.app { padding: 14px; }
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+h1 { margin: 0; font-size: 24px; }
+p { margin: 4px 0 0; color: #9ca3af; font-size: 13px; }
+.card {
+  background: #111827;
+  border: 1px solid #263244;
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.18);
+}
+.compact { padding: 10px 12px; }
+label { display: block; margin: 8px 0 6px; color: #cbd5e1; font-size: 13px; }
+input, select {
+  width: 100%;
+  background: #0b1220;
+  color: #f9fafb;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 10px;
+  outline: none;
+}
+input:focus, select:focus { border-color: #60a5fa; }
+.primaryBtn, .smallBtn {
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  color: white;
+}
+.primaryBtn {
+  width: 100%;
+  margin-top: 12px;
+  background: #2563eb;
+  padding: 11px;
+  font-weight: 700;
+}
+.smallBtn {
+  background: #1f2937;
+  border: 1px solid #374151;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.labelSmall { display: block; color: #94a3b8; font-size: 12px; margin-bottom: 2px; }
+strong { font-size: 18px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tradePanel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.tradeBtn {
+  min-height: 92px;
+  border: 0;
+  border-radius: 18px;
+  color: white;
+  font-size: 22px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 12px 28px rgba(0,0,0,.25);
+}
+.tradeBtn span { font-size: 11px; font-weight: 700; opacity: .88; }
+.buy { background: linear-gradient(135deg, #059669, #16a34a); }
+.sell { background: linear-gradient(135deg, #dc2626, #f97316); }
+.tradeBtn:disabled, .primaryBtn:disabled { opacity: .45; cursor: not-allowed; }
+.hidden { display: none; }
+.hint { font-size: 12px; color: #94a3b8; }
+.logCard { max-height: 190px; overflow: auto; }
+.logHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.logItem { border-top: 1px solid #263244; padding: 8px 0; font-size: 12px; color: #cbd5e1; }
+.logItem:first-child { border-top: 0; }
+.ok { color: #4ade80; }
+.err { color: #f87171; }
+.warn { color: #fbbf24; }
+summary { cursor: pointer; color: #dbeafe; font-weight: 700; }
+
+.demoHint { color: #93c5fd; }
+.realHint {
+  color: #fecaca;
+  background: rgba(220, 38, 38, .12);
+  border: 1px solid rgba(248, 113, 113, .35);
+  border-radius: 10px;
+  padding: 8px;
+}
+.realStatus { color: #f97316; }
+.realAccount { color: #fb923c; }
