@@ -25,7 +25,12 @@ const els = {
   manualSymbolInput: $('manualSymbolInput'),
   modeSelect: $('modeSelect'),
   barrierWrap: $('barrierWrap'),
-  barrierInput: $('barrierInput'),
+  targetReturnInput: $('targetReturnInput'),
+  barrierEngineStatus: $('barrierEngineStatus'),
+  higherPctText: $('higherPctText'),
+  higherBarrierText: $('higherBarrierText'),
+  lowerPctText: $('lowerPctText'),
+  lowerBarrierText: $('lowerBarrierText'),
   durationInput: $('durationInput'),
   durationUnitSelect: $('durationUnitSelect'),
   buyBtn: $('buyBtn'),
@@ -50,7 +55,26 @@ let activeAccountId = null;
 let activeAccountMode = 'demo';
 let balanceSubscriptionId = null;
 let contractSubscriptionId = null;
+let tickSubscriptionId = null;
+let keepAliveTimer = null;
 let tradeLog = JSON.parse(localStorage.getItem('tradeLog') || '[]');
+
+let currentSpot = null;
+let currentPipSize = null;
+let recentQuotes = [];
+let availableContractTypes = new Set();
+let proposalSubscriptionMeta = new Map();
+
+const barrierEngine = {
+  generation: 0,
+  running: false,
+  calibrating: false,
+  timer: null,
+  live: { higher: null, lower: null },
+  subscriptionIds: { higher: null, lower: null },
+  lastCalibrationAt: { higher: 0, lower: 0 },
+  lastConfigKey: ''
+};
 
 function getElectronApi() {
   return window.electronAPI || null;
@@ -64,10 +88,8 @@ function hasElectronApi(methodName) {
 }
 
 function showElectronMissing(action = 'esta función') {
-  const msg = `${action} necesita Electron. Abriste la pantalla como web/PWA o no cargó preload.js. Cerrá esto y abrí la app con INICIAR_APP_WINDOWS.bat, npm start o el .exe generado.`;
-  if (els.electronWarning) {
-    els.electronWarning.classList.remove('hidden');
-  }
+  const msg = `${action} necesita el ejecutable de Windows/Electron. Abriste la pantalla como web/PWA.`;
+  if (els.electronWarning) els.electronWarning.classList.remove('hidden');
   addLog(msg, 'err');
   return msg;
 }
@@ -77,7 +99,7 @@ function updateElectronEnvironmentUi() {
   if (els.electronWarning) els.electronWarning.classList.toggle('hidden', ok);
   if (!ok) {
     setPinButton(false);
-    els.pinBtn.title = 'No disponible fuera de Electron';
+    els.pinBtn.title = 'No disponible fuera del ejecutable de Windows';
   }
   return ok;
 }
@@ -108,6 +130,11 @@ function getSymbol() {
     : els.symbolSelect.value;
 }
 
+function getTargetReturn() {
+  const value = Number(els.targetReturnInput.value || 120);
+  return Number.isFinite(value) && value > 0 ? value : 120;
+}
+
 function saveSettings() {
   localStorage.setItem('derivIcSettings', JSON.stringify({
     appId: els.appIdInput.value,
@@ -120,7 +147,7 @@ function saveSettings() {
     symbol: els.symbolSelect.value,
     manualSymbol: els.manualSymbolInput.value,
     mode: els.modeSelect.value,
-    barrier: els.barrierInput.value,
+    targetReturn: els.targetReturnInput.value,
     duration: els.durationInput.value,
     unit: els.durationUnitSelect.value,
     step: els.stepInput.value,
@@ -139,16 +166,13 @@ function loadSettings() {
     if (s.accountMode) els.accountModeSelect.value = s.accountMode;
     if (s.demoAccountId) els.demoAccountIdInput.value = s.demoAccountId;
     if (s.realAccountId) els.realAccountIdInput.value = s.realAccountId;
-
-    // Compatibilidad con versiones anteriores: si existía token único, lo deja como demo.
     if (s.demoToken) els.demoTokenInput.value = s.demoToken;
     else if (s.token) els.demoTokenInput.value = s.token;
-
     if (s.realToken) els.realTokenInput.value = s.realToken;
     if (s.symbol) els.symbolSelect.value = s.symbol;
     if (s.manualSymbol) els.manualSymbolInput.value = s.manualSymbol;
     if (s.mode) els.modeSelect.value = s.mode;
-    if (s.barrier) els.barrierInput.value = s.barrier;
+    if (s.targetReturn) els.targetReturnInput.value = s.targetReturn;
     if (s.duration) els.durationInput.value = s.duration;
     if (s.unit) els.durationUnitSelect.value = s.unit;
     if (s.step) els.stepInput.value = s.step;
@@ -169,7 +193,7 @@ function addLog(message, cls = '') {
     cls
   };
   tradeLog.unshift(item);
-  tradeLog = tradeLog.slice(0, 90);
+  tradeLog = tradeLog.slice(0, 100);
   localStorage.setItem('tradeLog', JSON.stringify(tradeLog));
   renderLog();
 }
@@ -184,7 +208,11 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[c]));
 }
 
-function send(payload) {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function send(payload, timeoutMs = 15000) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return Promise.reject(new Error('WebSocket no conectado'));
   }
@@ -195,7 +223,7 @@ function send(payload) {
     const timeout = setTimeout(() => {
       pending.delete(id);
       reject(new Error('Timeout de respuesta Deriv'));
-    }, 15000);
+    }, timeoutMs);
     pending.set(id, { resolve, reject, timeout });
   });
 }
@@ -215,24 +243,22 @@ async function oauthLogin() {
   addLog('Iniciando login OAuth con Deriv...', 'warn');
 
   try {
-    if (!hasElectronApi('oauthLogin')) { showElectronMissing('OAuth/Login Deriv'); return; }
+    if (!hasElectronApi('oauthLogin')) {
+      showElectronMissing('OAuth/Login Deriv');
+      return;
+    }
     const tokenData = await getElectronApi().oauthLogin({ clientId, redirectUri });
     const accessToken = tokenData.access_token;
     const expiresIn = Number(tokenData.expires_in || 0);
-
     if (!accessToken) throw new Error('No se recibió access_token.');
 
-    // El token OAuth sirve para consultar las cuentas Options del usuario.
-    // Lo copiamos en ambos campos para que después elijas DEMO o REAL por Account ID.
     els.demoTokenInput.value = accessToken;
     els.realTokenInput.value = accessToken;
     saveSettings();
-
     els.oauthStatus.textContent = expiresIn
       ? `Login correcto. Token cargado. Expira aprox. en ${Math.round(expiresIn / 60)} min.`
       : 'Login correcto. Token cargado.';
-    addLog('OAuth correcto. Token cargado en DEMO y REAL. Ahora buscá/cargá la cuenta.', 'ok');
-
+    addLog('OAuth correcto. Ahora buscá y elegí la cuenta.', 'ok');
     await listOptionsAccounts();
   } catch (err) {
     els.oauthStatus.textContent = `Error OAuth: ${err.message}`;
@@ -262,13 +288,13 @@ async function connect() {
   els.connectBtn.disabled = true;
 
   try {
-    if (!hasElectronApi('getOtpWebSocketUrl')) { showElectronMissing('Conectar con API nueva'); throw new Error('Electron API no disponible'); }
+    if (!hasElectronApi('getOtpWebSocketUrl')) {
+      showElectronMissing('Conectar con API nueva');
+      throw new Error('Electron API no disponible');
+    }
     const wsUrl = await getElectronApi().getOtpWebSocketUrl({ appId, token, accountId });
     const urlMode = String(wsUrl).includes('/ws/real') ? 'real' : String(wsUrl).includes('/ws/demo') ? 'demo' : requestedMode;
-    if (urlMode !== requestedMode) {
-      addLog(`Aviso: seleccionaste ${requestedLabel}, pero la URL OTP parece de cuenta ${getAccountLabel(urlMode)}.`, 'warn');
-      activeAccountMode = urlMode;
-    }
+    activeAccountMode = urlMode;
 
     setStatus(`Conectando WebSocket ${getAccountLabel(activeAccountMode)}...`, 'warn');
     ws = new WebSocket(wsUrl);
@@ -278,9 +304,11 @@ async function connect() {
         isAuthorized = true;
         setStatus(`Conectado ${getAccountLabel(activeAccountMode)}: ${activeAccountId}`, activeAccountMode === 'real' ? 'realStatus' : 'ok');
         addLog(`Conectado API nueva ${getAccountLabel(activeAccountMode)} · ${activeAccountId}.`, activeAccountMode === 'real' ? 'warn' : 'ok');
+        startKeepAlive();
         await subscribeBalance();
+        await restartMarketEngine('conexión');
       } catch (err) {
-        addLog(`Conectó, pero falló balance: ${err.message}`, 'err');
+        addLog(`Conectó, pero falló la preparación: ${err.message}`, 'err');
       } finally {
         els.connectBtn.disabled = false;
         updateUi();
@@ -288,7 +316,12 @@ async function connect() {
     };
 
     ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
+      let msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch (_) {
+        return;
+      }
 
       if (msg.error && msg.req_id && pending.has(msg.req_id)) {
         const { reject, timeout } = pending.get(msg.req_id);
@@ -312,10 +345,22 @@ async function connect() {
       }
 
       if (msg.msg_type === 'balance' && msg.balance) {
+        const previousStake = getStake();
         balance = Number(msg.balance.balance);
         currency = msg.balance.currency || currency;
         if (msg.subscription?.id) balanceSubscriptionId = msg.subscription.id;
         updateUi();
+        if (Math.abs(previousStake - getStake()) >= 0.01) scheduleMarketRestart('cambió el stake IC');
+        return;
+      }
+
+      if (msg.msg_type === 'tick' && msg.tick) {
+        handleTick(msg.tick, msg.subscription?.id);
+        return;
+      }
+
+      if (msg.msg_type === 'proposal' && msg.proposal) {
+        handleProposalStream(msg);
         return;
       }
 
@@ -335,6 +380,8 @@ async function connect() {
       activeAccountId = null;
       setStatus('Desconectado');
       els.connectBtn.disabled = false;
+      stopBarrierEngine();
+      stopKeepAlive();
       updateUi();
     };
   } catch (err) {
@@ -346,7 +393,23 @@ async function connect() {
   }
 }
 
+function startKeepAlive() {
+  stopKeepAlive();
+  keepAliveTimer = setInterval(() => {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ ping: 1 }));
+    }
+  }, 30000);
+}
+
+function stopKeepAlive() {
+  if (keepAliveTimer) clearInterval(keepAliveTimer);
+  keepAliveTimer = null;
+}
+
 function disconnect() {
+  stopKeepAlive();
+  stopBarrierEngine();
   if (ws) {
     try { ws.close(); } catch (_) {}
   }
@@ -357,6 +420,7 @@ function disconnect() {
   balance = null;
   balanceSubscriptionId = null;
   contractSubscriptionId = null;
+  tickSubscriptionId = null;
   pending.forEach(({ timeout, reject }) => {
     clearTimeout(timeout);
     reject(new Error('Conexión cerrada'));
@@ -411,12 +475,36 @@ function updateAccountModeUi() {
   const selectedMode = getSelectedAccountMode();
   const selectedLabel = getAccountLabel(selectedMode);
   els.connectBtn.textContent = `Conectar ${selectedLabel}`;
-
   els.accountWarning.classList.toggle('realHint', selectedMode === 'real');
   els.accountWarning.classList.toggle('demoHint', selectedMode !== 'real');
   els.accountWarning.textContent = selectedMode === 'real'
     ? 'ATENCIÓN: modo REAL seleccionado. Las operaciones usan saldo real.'
     : 'Modo demo activo. Ideal para testear sin tocar saldo real.';
+}
+
+function formatPercent(value) {
+  return Number.isFinite(value) ? `${value.toFixed(1)}%` : 'Calculando…';
+}
+
+function updateBarrierUi() {
+  const higher = barrierEngine.live.higher;
+  const lower = barrierEngine.live.lower;
+  els.higherPctText.textContent = higher ? formatPercent(higher.returnPct) : 'Calculando…';
+  els.higherBarrierText.textContent = higher ? `Barrera ${higher.barrier}` : 'Buscando barrera';
+  els.lowerPctText.textContent = lower ? formatPercent(lower.returnPct) : 'Calculando…';
+  els.lowerBarrierText.textContent = lower ? `Barrera ${lower.barrier}` : 'Buscando barrera';
+
+  if (!isAuthorized) {
+    els.barrierEngineStatus.textContent = 'Conectá una cuenta para iniciar el cálculo automático.';
+  } else if (els.modeSelect.value !== 'higher_lower') {
+    els.barrierEngineStatus.textContent = 'El cálculo automático se activa en Higher/Lower.';
+  } else if (barrierEngine.calibrating) {
+    els.barrierEngineStatus.textContent = `Calculando barreras cercanas a ${getTargetReturn().toFixed(0)}%…`;
+  } else if (higher && lower) {
+    els.barrierEngineStatus.textContent = 'Listo: las dos propuestas se actualizan en vivo. Al tocar, se refresca y se compra la más cercana.';
+  } else {
+    els.barrierEngineStatus.textContent = 'Preparando propuestas Higher y Lower…';
+  }
 }
 
 function updateUi() {
@@ -428,7 +516,6 @@ function updateUi() {
     ? `${getAccountLabel(activeAccountMode)} ${activeAccountId || ''}`.trim()
     : getAccountLabel(getSelectedAccountMode());
   els.accountText.className = isAuthorized && activeAccountMode === 'real' ? 'realAccount' : '';
-
   els.balanceText.textContent = balance === null ? '—' : `${balance.toFixed(2)} ${currency}`;
   els.levelText.textContent = balance === null ? '—' : `${level}`;
   els.stakeText.textContent = balance === null ? '—' : `${stake.toFixed(2)} ${currency}`;
@@ -442,11 +529,455 @@ function updateUi() {
   els.manualSymbolWrap.classList.toggle('hidden', els.symbolSelect.value !== 'custom');
 
   if (mode === 'higher_lower') {
-    els.buyBtn.innerHTML = 'HIGHER<br><span>CALL con barrera</span>';
-    els.sellBtn.innerHTML = 'LOWER<br><span>PUT con barrera</span>';
+    const higher = barrierEngine.live.higher;
+    const lower = barrierEngine.live.lower;
+    els.buyBtn.innerHTML = `HIGHER<br><span>${higher ? `${formatPercent(higher.returnPct)} · ${higher.barrier}` : 'calculando barrera'}</span>`;
+    els.sellBtn.innerHTML = `LOWER<br><span>${lower ? `${formatPercent(lower.returnPct)} · ${lower.barrier}` : 'calculando barrera'}</span>`;
   } else {
     els.buyBtn.innerHTML = 'COMPRA<br><span>CALL / RISE</span>';
     els.sellBtn.innerHTML = 'VENTA<br><span>PUT / FALL</span>';
+  }
+  updateBarrierUi();
+}
+
+function normalizePipValue(rawPipSize, quote) {
+  const n = Number(rawPipSize);
+  if (Number.isFinite(n)) {
+    if (Number.isInteger(n) && n >= 0 && n <= 12) return 10 ** (-n);
+    if (n > 0 && n < 1) return n;
+  }
+  const text = String(quote ?? '');
+  const decimals = text.includes('.') ? Math.min(8, text.split('.')[1].length) : 2;
+  return 10 ** (-Math.max(0, decimals));
+}
+
+function handleTick(tick, subId) {
+  if (subId) tickSubscriptionId = subId;
+  const quote = Number(tick.quote);
+  if (!Number.isFinite(quote)) return;
+  currentSpot = quote;
+  if (tick.pip_size !== undefined && tick.pip_size !== null) currentPipSize = tick.pip_size;
+  recentQuotes.push(quote);
+  if (recentQuotes.length > 80) recentQuotes.shift();
+}
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function estimateBaseDistance() {
+  const pip = normalizePipValue(currentPipSize, currentSpot);
+  const diffs = [];
+  for (let i = 1; i < recentQuotes.length; i += 1) {
+    const d = Math.abs(recentQuotes[i] - recentQuotes[i - 1]);
+    if (d > 0 && Number.isFinite(d)) diffs.push(d);
+  }
+  const typicalMove = median(diffs);
+  const duration = Math.max(1, Number(els.durationInput.value || 1));
+  const unit = els.durationUnitSelect.value;
+  const durationFactor = unit === 't'
+    ? Math.sqrt(duration)
+    : unit === 's'
+      ? Math.sqrt(Math.max(1, duration / 5))
+      : Math.sqrt(Math.max(1, duration * 12));
+  return Math.max(pip, typicalMove || pip * 10) * Math.max(1, durationFactor * 0.6);
+}
+
+function getDistanceDecimals() {
+  const pip = normalizePipValue(currentPipSize, currentSpot);
+  if (!Number.isFinite(pip) || pip <= 0) return 6;
+  const decimals = Math.max(0, Math.ceil(-Math.log10(pip)));
+  return Math.min(12, Math.max(2, decimals));
+}
+
+function formatRelativeBarrier(side, distance) {
+  const pip = normalizePipValue(currentPipSize, currentSpot);
+  const safe = Math.max(pip, Math.abs(Number(distance) || pip));
+  const decimals = getDistanceDecimals();
+  let text = safe.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '');
+  if (!text || Number(text) === 0) text = pip.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '');
+  return `${side === 'higher' ? '+' : '-'}${text}`;
+}
+
+function getContractType(side) {
+  if (side === 'higher') {
+    if (availableContractTypes.has('HIGHER')) return 'HIGHER';
+    return 'CALL';
+  }
+  if (availableContractTypes.has('LOWER')) return 'LOWER';
+  return 'PUT';
+}
+
+function buildProposalRequest(side, barrier, subscribe = false) {
+  return {
+    proposal: 1,
+    amount: getStake(),
+    basis: 'stake',
+    contract_type: getContractType(side),
+    currency,
+    duration: Math.max(1, Number(els.durationInput.value || 1)),
+    duration_unit: els.durationUnitSelect.value,
+    underlying_symbol: getSymbol(),
+    barrier,
+    ...(subscribe ? { subscribe: 1 } : {})
+  };
+}
+
+function proposalToQuote(side, msg, fallbackBarrier) {
+  const proposal = msg?.proposal;
+  if (!proposal?.id) return null;
+  const askPrice = Number(proposal.ask_price);
+  const payout = Number(proposal.payout);
+  if (!Number.isFinite(askPrice) || askPrice <= 0 || !Number.isFinite(payout)) return null;
+  const returnPct = ((payout - askPrice) / askPrice) * 100;
+  const barrier = String(msg?.echo_req?.barrier || fallbackBarrier || '');
+  return {
+    side,
+    id: proposal.id,
+    askPrice,
+    payout,
+    returnPct,
+    barrier,
+    distance: Math.abs(Number(barrier)),
+    updatedAt: Date.now(),
+    subscriptionId: msg?.subscription?.id || null
+  };
+}
+
+async function requestBarrierQuote(side, distance, subscribe = false) {
+  const barrier = formatRelativeBarrier(side, distance);
+  const msg = await send(buildProposalRequest(side, barrier, subscribe), 12000);
+  const quote = proposalToQuote(side, msg, barrier);
+  if (!quote) throw new Error('Propuesta sin precio/payout válido');
+  return { quote, msg };
+}
+
+function chooseBetter(current, candidate, target) {
+  if (!candidate) return current;
+  if (!current) return candidate;
+  return Math.abs(candidate.returnPct - target) < Math.abs(current.returnPct - target) ? candidate : current;
+}
+
+async function findBestBarrier(side, generation, quick = false) {
+  const target = getTargetReturn();
+  const pip = normalizePipValue(currentPipSize, currentSpot);
+  const previous = barrierEngine.live[side];
+  let distance = previous?.distance || estimateBaseDistance();
+  distance = Math.max(pip, distance);
+  let best = null;
+  let low = null;
+  let high = null;
+  const maxExpand = quick ? 4 : 8;
+
+  const sample = async (d) => {
+    if (generation !== barrierEngine.generation) throw new Error('Cálculo reemplazado');
+    try {
+      const { quote } = await requestBarrierQuote(side, Math.max(pip, d), false);
+      best = chooseBetter(best, quote, target);
+      await sleep(80);
+      return quote;
+    } catch (_) {
+      await sleep(80);
+      return null;
+    }
+  };
+
+  let first = await sample(distance);
+  if (!first) {
+    const fallbacks = [pip, pip * 10, pip * 100, pip * 1000, Math.max(pip, Math.abs(currentSpot || 1) * 0.0001)];
+    for (const d of fallbacks) {
+      first = await sample(d);
+      if (first) {
+        distance = d;
+        break;
+      }
+    }
+  }
+  if (!first) throw new Error(`Deriv no devolvió propuestas ${side.toUpperCase()}`);
+
+  if (first.returnPct < target) {
+    low = first;
+    let d = distance;
+    for (let i = 0; i < maxExpand; i += 1) {
+      d *= 2;
+      const q = await sample(d);
+      if (!q) continue;
+      if (q.returnPct >= target) {
+        high = q;
+        break;
+      }
+      low = q;
+    }
+  } else {
+    high = first;
+    let d = distance;
+    for (let i = 0; i < maxExpand; i += 1) {
+      d = Math.max(pip, d / 2);
+      const q = await sample(d);
+      if (!q) continue;
+      if (q.returnPct <= target || d <= pip * 1.0001) {
+        low = q;
+        break;
+      }
+      high = q;
+    }
+  }
+
+  if (low && high && low.distance > 0 && high.distance > 0) {
+    let lo = Math.min(low.distance, high.distance);
+    let hi = Math.max(low.distance, high.distance);
+    const refineCount = quick ? 3 : 6;
+    for (let i = 0; i < refineCount; i += 1) {
+      const mid = (lo + hi) / 2;
+      const q = await sample(mid);
+      if (!q) continue;
+      if (q.returnPct < target) lo = q.distance;
+      else hi = q.distance;
+    }
+  } else if (!quick) {
+    const base = best?.distance || distance;
+    for (const factor of [0.7, 0.85, 1.15, 1.35]) {
+      await sample(Math.max(pip, base * factor));
+    }
+  }
+
+  if (!best) throw new Error(`No se encontró propuesta ${side.toUpperCase()}`);
+  return best;
+}
+
+async function forgetSubscription(id) {
+  if (!id || !ws || ws.readyState !== WebSocket.OPEN) return;
+  proposalSubscriptionMeta.delete(id);
+  try { await send({ forget: id }, 6000); } catch (_) {}
+}
+
+async function startLiveBarrierSubscription(side, best, generation) {
+  if (generation !== barrierEngine.generation) return;
+  const oldId = barrierEngine.subscriptionIds[side];
+  if (oldId) await forgetSubscription(oldId);
+
+  const { quote, msg } = await requestBarrierQuote(side, best.distance, true);
+  if (generation !== barrierEngine.generation) {
+    if (msg.subscription?.id) await forgetSubscription(msg.subscription.id);
+    return;
+  }
+
+  const subId = msg.subscription?.id || quote.subscriptionId;
+  if (subId) {
+    barrierEngine.subscriptionIds[side] = subId;
+    proposalSubscriptionMeta.set(subId, { side, barrier: quote.barrier, generation });
+  }
+  barrierEngine.live[side] = quote;
+  barrierEngine.lastCalibrationAt[side] = Date.now();
+  updateUi();
+}
+
+function handleProposalStream(msg) {
+  const subId = msg.subscription?.id;
+  if (!subId) return;
+  const meta = proposalSubscriptionMeta.get(subId);
+  if (!meta || meta.generation !== barrierEngine.generation) return;
+  const quote = proposalToQuote(meta.side, msg, meta.barrier);
+  if (!quote) return;
+  barrierEngine.live[meta.side] = quote;
+  updateUi();
+}
+
+async function loadMarketMetadata(symbol) {
+  try {
+    const active = await send({ active_symbols: 'brief' });
+    const list = active.active_symbols || [];
+    const item = list.find(x => (x.underlying_symbol || x.symbol) === symbol);
+    if (item?.pip_size !== undefined) currentPipSize = item.pip_size;
+  } catch (_) {}
+
+  try {
+    const contracts = await send({ contracts_for: symbol });
+    const available = contracts.contracts_for?.available || [];
+    availableContractTypes = new Set(available.map(c => c.contract_type).filter(Boolean));
+  } catch (_) {
+    availableContractTypes = new Set();
+  }
+}
+
+async function subscribeTicks(symbol) {
+  if (tickSubscriptionId) {
+    try { await send({ forget: tickSubscriptionId }, 6000); } catch (_) {}
+    tickSubscriptionId = null;
+  }
+  recentQuotes = [];
+  currentSpot = null;
+  const res = await send({ ticks: symbol, subscribe: 1 });
+  if (res.tick) handleTick(res.tick, res.subscription?.id);
+  if (res.subscription?.id) tickSubscriptionId = res.subscription.id;
+}
+
+function configKey() {
+  return [
+    getSymbol(),
+    els.modeSelect.value,
+    els.durationInput.value,
+    els.durationUnitSelect.value,
+    getStake().toFixed(2),
+    getTargetReturn().toFixed(2),
+    currency
+  ].join('|');
+}
+
+async function calibrateSide(side, generation, quick = false) {
+  const best = await findBestBarrier(side, generation, quick);
+  await startLiveBarrierSubscription(side, best, generation);
+  addLog(`${side.toUpperCase()} listo: ${best.returnPct.toFixed(1)}% · barrera ${best.barrier}`, 'ok');
+  return best;
+}
+
+async function startBarrierEngine(reason = 'configuración') {
+  if (!isAuthorized || els.modeSelect.value !== 'higher_lower') return;
+  const symbol = getSymbol();
+  if (!symbol) return;
+
+  const generation = ++barrierEngine.generation;
+  barrierEngine.running = true;
+  barrierEngine.calibrating = true;
+  barrierEngine.lastConfigKey = configKey();
+  barrierEngine.live = { higher: null, lower: null };
+  updateUi();
+  addLog(`Auto-barrera: recalculando por ${reason}. Objetivo ${getTargetReturn().toFixed(0)}%.`, 'warn');
+
+  try {
+    await stopProposalSubscriptionsOnly();
+    await loadMarketMetadata(symbol);
+    await subscribeTicks(symbol);
+    await sleep(450);
+    if (generation !== barrierEngine.generation) return;
+
+    for (const side of ['higher', 'lower']) {
+      if (generation !== barrierEngine.generation) return;
+      try {
+        await calibrateSide(side, generation, false);
+      } catch (err) {
+        addLog(`${side.toUpperCase()}: ${err.message || 'no se pudo calcular'}`, 'err');
+      }
+    }
+  } finally {
+    if (generation === barrierEngine.generation) {
+      barrierEngine.calibrating = false;
+      updateUi();
+      startRetuneLoop();
+    }
+  }
+}
+
+async function stopProposalSubscriptionsOnly() {
+  const ids = Object.values(barrierEngine.subscriptionIds).filter(Boolean);
+  barrierEngine.subscriptionIds = { higher: null, lower: null };
+  proposalSubscriptionMeta.clear();
+  for (const id of ids) await forgetSubscription(id);
+}
+
+function startRetuneLoop() {
+  if (barrierEngine.timer) clearInterval(barrierEngine.timer);
+  barrierEngine.timer = setInterval(async () => {
+    if (!isAuthorized || els.modeSelect.value !== 'higher_lower' || barrierEngine.calibrating || isSendingOrder) return;
+    if (configKey() !== barrierEngine.lastConfigKey) {
+      restartMarketEngine('cambió la configuración');
+      return;
+    }
+
+    const target = getTargetReturn();
+    const now = Date.now();
+    for (const side of ['higher', 'lower']) {
+      const quote = barrierEngine.live[side];
+      const stale = !quote || now - quote.updatedAt > 4500;
+      const drifted = quote && Math.abs(quote.returnPct - target) > 3;
+      const periodic = now - barrierEngine.lastCalibrationAt[side] > 18000;
+      if (stale || drifted || periodic) {
+        try {
+          barrierEngine.calibrating = true;
+          updateUi();
+          await calibrateSide(side, barrierEngine.generation, true);
+        } catch (err) {
+          addLog(`Reajuste ${side.toUpperCase()}: ${err.message}`, 'warn');
+        } finally {
+          barrierEngine.calibrating = false;
+          updateUi();
+        }
+      }
+    }
+  }, 3000);
+}
+
+async function stopBarrierEngine() {
+  barrierEngine.generation += 1;
+  barrierEngine.running = false;
+  barrierEngine.calibrating = false;
+  if (barrierEngine.timer) clearInterval(barrierEngine.timer);
+  barrierEngine.timer = null;
+  await stopProposalSubscriptionsOnly();
+  if (tickSubscriptionId && ws?.readyState === WebSocket.OPEN) {
+    try { await send({ forget: tickSubscriptionId }, 5000); } catch (_) {}
+  }
+  tickSubscriptionId = null;
+  currentSpot = null;
+  recentQuotes = [];
+  barrierEngine.live = { higher: null, lower: null };
+  updateUi();
+}
+
+let restartTimer = null;
+function scheduleMarketRestart(reason) {
+  if (restartTimer) clearTimeout(restartTimer);
+  restartTimer = setTimeout(() => restartMarketEngine(reason), 500);
+}
+
+async function restartMarketEngine(reason) {
+  if (!isAuthorized) return;
+  if (els.modeSelect.value === 'higher_lower') {
+    await startBarrierEngine(reason);
+  } else {
+    await stopBarrierEngine();
+  }
+}
+
+async function getFreshTradeQuote(side) {
+  const cached = barrierEngine.live[side];
+  const now = Date.now();
+  if (cached && now - cached.updatedAt <= 1200) return cached;
+
+  if (cached?.distance) {
+    try {
+      const { quote } = await requestBarrierQuote(side, cached.distance, false);
+      barrierEngine.live[side] = quote;
+      updateUi();
+      return quote;
+    } catch (_) {}
+  }
+
+  const generation = barrierEngine.generation;
+  const best = await findBestBarrier(side, generation, true);
+  barrierEngine.live[side] = best;
+  updateUi();
+  return best;
+}
+
+async function buyWithRetry(quote, side) {
+  try {
+    return await send({ buy: quote.id, price: quote.askPrice });
+  } catch (firstError) {
+    const { quote: refreshed } = await requestBarrierQuote(side, quote.distance, false);
+    barrierEngine.live[side] = refreshed;
+    updateUi();
+    try {
+      return await send({ buy: refreshed.id, price: refreshed.askPrice });
+    } catch (_) {
+      const fallback = await findBestBarrier(side, barrierEngine.generation, true);
+      barrierEngine.live[side] = fallback;
+      updateUi();
+      return send({ buy: fallback.id, price: fallback.askPrice });
+    }
   }
 }
 
@@ -457,10 +988,8 @@ async function executeTrade(side) {
   const mode = els.modeSelect.value;
   const symbol = getSymbol();
   const stake = getStake();
-  const contractType = side === 'buy' ? 'CALL' : 'PUT';
   const duration = Number(els.durationInput.value || 1);
   const durationUnit = els.durationUnitSelect.value;
-  const barrier = String(els.barrierInput.value || '').trim();
   const accountLabel = getAccountLabel(activeAccountMode);
 
   if (!symbol) {
@@ -468,24 +997,49 @@ async function executeTrade(side) {
     return;
   }
 
-  if (mode === 'higher_lower' && !barrier) {
-    addLog('En Higher/Lower falta cargar la barrera.', 'err');
-    return;
-  }
-
-  if (activeAccountMode === 'real') {
-    const confirmed = window.confirm(`Vas a operar en cuenta REAL.\n\n${contractType} ${symbol}\nStake: ${stake.toFixed(2)} ${currency}\n\n¿Confirmás la orden?`);
-    if (!confirmed) {
-      addLog('Orden REAL cancelada por confirmación manual.', 'warn');
-      return;
-    }
-  }
-
   isSendingOrder = true;
   updateUi();
-  addLog(`[${accountLabel}] Pidiendo proposal ${contractType} ${symbol} · stake ${stake.toFixed(2)} ${currency}`, 'warn');
 
   try {
+    let quote;
+    let contractLabel;
+
+    if (mode === 'higher_lower') {
+      const barrierSide = side === 'buy' ? 'higher' : 'lower';
+      addLog(`[${accountLabel}] Refrescando ${barrierSide.toUpperCase()} para entrar cerca de ${getTargetReturn().toFixed(0)}%…`, 'warn');
+      quote = await getFreshTradeQuote(barrierSide);
+      contractLabel = `${barrierSide.toUpperCase()} ${quote.returnPct.toFixed(1)}% · barrera ${quote.barrier}`;
+
+      if (activeAccountMode === 'real') {
+        const confirmed = window.confirm(`Vas a operar en cuenta REAL.\n\n${contractLabel}\n${symbol}\nStake: ${stake.toFixed(2)} ${currency}\n\n¿Confirmás la orden?`);
+        if (!confirmed) {
+          addLog('Orden REAL cancelada por confirmación manual.', 'warn');
+          isSendingOrder = false;
+          updateUi();
+          return;
+        }
+      }
+
+      const buy = await buyWithRetry(quote, barrierSide);
+      const contractId = buy.buy?.contract_id;
+      if (!contractId) throw new Error('Deriv no devolvió contract_id');
+      const paid = Number(buy.buy?.buy_price ?? quote.askPrice);
+      addLog(`[${accountLabel}] Comprado ${contractId} · ${contractLabel} · ${paid.toFixed(2)} ${currency}`, 'ok');
+      await subscribeContract(contractId);
+      return;
+    }
+
+    const contractType = side === 'buy' ? 'CALL' : 'PUT';
+    if (activeAccountMode === 'real') {
+      const confirmed = window.confirm(`Vas a operar en cuenta REAL.\n\n${contractType} ${symbol}\nStake: ${stake.toFixed(2)} ${currency}\n\n¿Confirmás la orden?`);
+      if (!confirmed) {
+        addLog('Orden REAL cancelada por confirmación manual.', 'warn');
+        isSendingOrder = false;
+        updateUi();
+        return;
+      }
+    }
+
     const proposalReq = {
       proposal: 1,
       amount: stake,
@@ -496,18 +1050,13 @@ async function executeTrade(side) {
       duration_unit: durationUnit,
       underlying_symbol: symbol
     };
-
-    if (mode === 'higher_lower') proposalReq.barrier = barrier;
-
     const proposal = await send(proposalReq);
     const proposalId = proposal.proposal?.id;
     const askPrice = Number(proposal.proposal?.ask_price || stake);
     if (!proposalId) throw new Error('Deriv no devolvió proposal_id');
-
     const buy = await send({ buy: proposalId, price: askPrice });
     const contractId = buy.buy?.contract_id;
     if (!contractId) throw new Error('Deriv no devolvió contract_id');
-
     addLog(`[${accountLabel}] Comprado contrato ${contractId} · ${contractType} · ${askPrice.toFixed(2)} ${currency}`, 'ok');
     await subscribeContract(contractId);
   } catch (err) {
@@ -530,8 +1079,7 @@ async function handleContractUpdate(contract, subId) {
   const profit = Number(contract.profit || 0);
   const result = profit > 0 ? 'ITM' : 'OTM';
   els.lastResultText.textContent = `${result} ${profit.toFixed(2)}`;
-  addLog(`[${getAccountLabel(activeAccountMode)}] ${result} · profit ${profit.toFixed(2)} ${currency} · balance recalculando nivel`, profit > 0 ? 'ok' : 'err');
-
+  addLog(`[${getAccountLabel(activeAccountMode)}] ${result} · profit ${profit.toFixed(2)} ${currency} · recalculando IC`, profit > 0 ? 'ok' : 'err');
   isSendingOrder = false;
 
   try {
@@ -545,6 +1093,7 @@ async function handleContractUpdate(contract, subId) {
 
   contractSubscriptionId = null;
   updateUi();
+  scheduleMarketRestart('terminó la operación y cambió el saldo');
 }
 
 async function listOptionsAccounts() {
@@ -558,10 +1107,12 @@ async function listOptionsAccounts() {
   els.accountsBtn.disabled = true;
 
   try {
-    if (!hasElectronApi('getOptionsAccounts')) { showElectronMissing('Buscar cuentas'); return; }
+    if (!hasElectronApi('getOptionsAccounts')) {
+      showElectronMissing('Buscar cuentas');
+      return;
+    }
     const data = await getElectronApi().getOptionsAccounts({ appId, token });
     const accounts = Array.isArray(data) ? data : (Array.isArray(data?.accounts) ? data.accounts : []);
-
     if (!accounts.length) {
       els.accountsBox.innerHTML = 'No se encontraron cuentas en la respuesta.';
       addLog(`No se encontraron cuentas Options usando token ${label}.`, 'warn');
@@ -585,7 +1136,6 @@ async function listOptionsAccounts() {
         addLog(`Account ID ${label} cargado: ${id}`, 'ok');
       });
     });
-
     addLog(`Cuentas Options encontradas para ${label}. Tocá una para cargarla.`, 'ok');
   } catch (err) {
     els.accountsBox.innerHTML = escapeHtml(`Error: ${err.message}`);
@@ -608,13 +1158,22 @@ els.accountModeSelect.addEventListener('change', () => {
   }
   updateUi();
 });
-els.modeSelect.addEventListener('change', () => { saveSettings(); updateUi(); });
-els.symbolSelect.addEventListener('change', () => { saveSettings(); updateUi(); });
+els.modeSelect.addEventListener('change', () => {
+  saveSettings();
+  updateUi();
+  scheduleMarketRestart('cambió el tipo de contrato');
+});
+els.symbolSelect.addEventListener('change', () => {
+  saveSettings();
+  updateUi();
+  scheduleMarketRestart('cambió el par');
+});
+
 [
   els.manualSymbolInput,
-  els.barrierInput,
   els.durationInput,
   els.durationUnitSelect,
+  els.targetReturnInput,
   els.stepInput,
   els.maxInput,
   els.pctInput,
@@ -625,19 +1184,34 @@ els.symbolSelect.addEventListener('change', () => { saveSettings(); updateUi(); 
   els.demoTokenInput,
   els.realTokenInput
 ].forEach(el => {
-  el.addEventListener('change', () => { saveSettings(); updateUi(); });
-  el.addEventListener('input', () => { saveSettings(); updateUi(); });
+  el.addEventListener('change', () => {
+    saveSettings();
+    updateUi();
+    if ([els.manualSymbolInput, els.durationInput, els.durationUnitSelect, els.targetReturnInput, els.stepInput, els.maxInput, els.pctInput].includes(el)) {
+      scheduleMarketRestart('cambió un parámetro');
+    }
+  });
+  el.addEventListener('input', () => {
+    saveSettings();
+    updateUi();
+  });
 });
+
 els.clearLogBtn.addEventListener('click', () => {
   tradeLog = [];
   localStorage.removeItem('tradeLog');
   renderLog();
 });
+
 els.pinBtn.addEventListener('click', async () => {
   const goingOn = !els.pinBtn.classList.contains('isOn');
   setPinButton(goingOn);
   try {
-    if (!hasElectronApi('setAlwaysOnTop')) { showElectronMissing('Mantener encima'); setPinButton(false); return; }
+    if (!hasElectronApi('setAlwaysOnTop')) {
+      showElectronMissing('Mantener encima');
+      setPinButton(false);
+      return;
+    }
     const state = await getElectronApi().setAlwaysOnTop(goingOn);
     setPinButton(state);
     addLog(`Mantener encima: ${state.enabled ? 'ON' : 'OFF'}.`, state.enabled ? 'ok' : 'warn');
@@ -656,7 +1230,7 @@ if (hasElectronApi('onAlwaysOnTopState')) {
   updateUi();
   try {
     updateElectronEnvironmentUi();
-    if (!hasElectronApi('isAlwaysOnTop')) { showElectronMissing('Mantener encima'); return; }
+    if (!hasElectronApi('isAlwaysOnTop')) return;
     const state = await getElectronApi().isAlwaysOnTop();
     setPinButton(state);
   } catch (err) {

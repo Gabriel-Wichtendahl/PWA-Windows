@@ -16,7 +16,7 @@
       <button id="pinBtn" class="smallBtn pinBtn" title="Mantener encima">📌 Encima: ON</button>
     </header>
 
-    <div id="electronWarning" class="envWarning hidden">⚠️ Esta pantalla está abierta como web/PWA o no cargó el puente de Electron. En ese modo no funcionan Mantener encima, OAuth ni API nueva. Abrila con <b>npm start</b> o con el ejecutable de Electron.</div>
+    <div id="electronWarning" class="envWarning hidden">⚠️ Esta pantalla está abierta como web/PWA. Para operar, usar OAuth y mantenerla encima, abrí el ejecutable de Windows.</div>
 
     <section class="card setupCard">
       <div class="row">
@@ -28,11 +28,11 @@
             <option value="1HZ50V">Volatility 50 Index - 1HZ50V</option>
             <option value="1HZ75V">Volatility 75 Index - 1HZ75V</option>
             <option value="1HZ100V">Volatility 100 Index - 1HZ100V</option>
-            <option value="R_10">Legacy R_10</option>
-            <option value="R_25">Legacy R_25</option>
-            <option value="R_50">Legacy R_50</option>
-            <option value="R_75">Legacy R_75</option>
-            <option value="R_100">Legacy R_100</option>
+            <option value="R_10">Volatility 10 - R_10</option>
+            <option value="R_25">Volatility 25 - R_25</option>
+            <option value="R_50">Volatility 50 - R_50</option>
+            <option value="R_75">Volatility 75 - R_75</option>
+            <option value="R_100">Volatility 100 - R_100</option>
             <option value="custom">Manual...</option>
           </select>
         </div>
@@ -40,7 +40,7 @@
           <label>Tipo</label>
           <select id="modeSelect">
             <option value="rise_fall">Rise/Fall</option>
-            <option value="higher_lower">Higher/Lower</option>
+            <option value="higher_lower">Higher/Lower automático</option>
           </select>
         </div>
       </div>
@@ -65,10 +65,35 @@
         </div>
       </div>
 
-      <div id="barrierWrap" class="hidden">
-        <label>Barrera Higher/Lower</label>
-        <input id="barrierInput" placeholder="Ej: +0.10, -0.10 o precio exacto" autocomplete="off" spellcheck="false" />
-        <p class="hint">En Higher/Lower Deriv necesita barrera. La app envía CALL/PUT con este valor.</p>
+      <div id="barrierWrap" class="autoBarrierBox hidden">
+        <div class="targetRow">
+          <div>
+            <label>Ganancia neta objetivo</label>
+            <div class="percentInputWrap">
+              <input id="targetReturnInput" type="number" value="120" min="1" step="1" />
+              <span>%</span>
+            </div>
+          </div>
+          <div class="engineBadge">
+            <span>Auto-barrera</span>
+            <strong>SIEMPRE ACTIVA</strong>
+          </div>
+        </div>
+
+        <div class="liveQuotes">
+          <div class="liveQuote higherQuote">
+            <span>HIGHER</span>
+            <strong id="higherPctText">Calculando…</strong>
+            <small id="higherBarrierText">Buscando barrera</small>
+          </div>
+          <div class="liveQuote lowerQuote">
+            <span>LOWER</span>
+            <strong id="lowerPctText">Calculando…</strong>
+            <small id="lowerBarrierText">Buscando barrera</small>
+          </div>
+        </div>
+        <p id="barrierEngineStatus" class="hint">Conectá una cuenta para iniciar el cálculo automático.</p>
+        <p class="hint">No exige 120% exacto: mantiene la propuesta más cercana, la refresca al tocar y prioriza que la operación entre.</p>
       </div>
     </section>
 
@@ -107,15 +132,14 @@
         <summary>Conexión API nueva DEMO / REAL</summary>
 
         <label>Client ID / App ID nuevo Deriv</label>
-        <input id="appIdInput" type="text" placeholder="Ej: app_xxxxx / app12345" autocomplete="off" spellcheck="false" />
-        <p class="hint">Campo sin límite numérico: podés pegar IDs largos o con letras.</p>
+        <input id="appIdInput" type="text" placeholder="Pegá el ID completo" autocomplete="off" spellcheck="false" />
+        <p class="hint">Acepta IDs largos y alfanuméricos.</p>
 
         <label>Redirect URL registrada</label>
         <input id="redirectUriInput" type="text" value="https://gabriel-wichtendahl.github.io/PWA-Windows/callback.html" autocomplete="off" spellcheck="false" />
-        <p class="hint">Debe coincidir exacto con la URL que cargaste en Deriv Developers.</p>
 
         <button id="oauthLoginBtn" class="oauthBtn">Login Deriv OAuth</button>
-        <p id="oauthStatus" class="hint">Esto abre Deriv, te logueás y la app carga el token automáticamente.</p>
+        <p id="oauthStatus" class="hint">Se abre Deriv para autorizar la app.</p>
 
         <label>Modo de cuenta</label>
         <select id="accountModeSelect">
@@ -136,10 +160,10 @@
         </div>
 
         <label>Token DEMO / OAuth</label>
-        <input id="demoTokenInput" type="password" placeholder="Bearer/PAT/OAuth token con permiso trade" autocomplete="off" />
+        <input id="demoTokenInput" type="password" placeholder="Bearer/PAT/OAuth token" autocomplete="off" />
 
         <label>Token REAL / OAuth</label>
-        <input id="realTokenInput" type="password" placeholder="Bearer/PAT/OAuth token real con permiso trade" autocomplete="off" />
+        <input id="realTokenInput" type="password" placeholder="Bearer/PAT/OAuth token" autocomplete="off" />
 
         <div class="row btnRow">
           <button id="accountsBtn" class="secondaryBtn">Buscar cuentas</button>
@@ -164,7 +188,7 @@
         </div>
         <label>Porcentaje stake</label>
         <input id="pctInput" type="number" value="5" min="0.1" step="0.1" />
-        <p class="hint">Nivel activo = saldo alcanzado por escalones de 105. Stake = 5% del nivel activo. Si baja de nivel, baja el stake.</p>
+        <p class="hint">Nivel activo por escalones de 105. Stake = 5% del nivel. Si el saldo baja, vuelve al nivel anterior.</p>
       </details>
     </section>
 
